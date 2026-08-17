@@ -1,16 +1,16 @@
 {
-  "asof": "2026-08-17T16:42:21-04:00",
-  "source_time": "2026.08.17 23:42:12",
+  "asof": "2026-08-17T17:49:41-04:00",
+  "source_time": "2026.08.18 00:49:24",
   "server": "Coinexx-Demo",
   "login": 5217539,
   "balance": 5461.98,
-  "equity": 7352.62,
-  "floating_pl": 1890.64,
+  "equity": 7358.22,
+  "floating_pl": 1896.24,
   "margin": 333.88,
-  "free": 7018.74,
+  "free": 7024.34,
   "symbol": "XAUUSD",
-  "bid": 4415.25,
-  "ask": 4415.45,
+  "bid": 4416.41,
+  "ask": 4416.99,
   "positions": [
     {
       "ticket": 102034139,
@@ -19,7 +19,7 @@
       "open": 4043.95,
       "sl": 4050.0,
       "tp": 0.0,
-      "profit": 1812.7,
+      "profit": 1816.2,
       "magic": 0,
       "comment": "from #101722338",
       "openTime": "2026.07.29 20:26:01"
@@ -31,7 +31,7 @@
       "open": 4389.25,
       "sl": 4389.25,
       "tp": 0.0,
-      "profit": 77.94,
+      "profit": 80.04,
       "magic": 260814,
       "comment": "from #102175407",
       "openTime": "2026.08.17 16:35:08"
