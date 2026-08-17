@@ -254,31 +254,120 @@
     $("zones").innerHTML = html;
   }
 
-  function renderFVG() {
-    const fvgs = [];
+  function fvgRangeKey(high, low) {
+    const h = Number(high), l = Number(low);
+    if (Number.isNaN(h) && Number.isNaN(l)) return null;
+    return (Number.isNaN(l) ? "" : l.toFixed(3)) + "-" + (Number.isNaN(h) ? "" : h.toFixed(3));
+  }
+  function pickGap(obj) {
+    if (!obj || typeof obj !== "object") return null;
+    const high = obj.gap_high != null ? obj.gap_high : (obj.fvg_high != null ? obj.fvg_high : obj.high);
+    const low = obj.gap_low != null ? obj.gap_low : (obj.fvg_low != null ? obj.fvg_low : obj.low);
+    if (high == null && low == null) return null;
+    const mid = obj.gap_mid != null ? obj.gap_mid : (obj.fvg_mid != null ? obj.fvg_mid : obj.mid);
+    return { high, low, mid };
+  }
+  function demand50Line(f) {
+    const d = f.demand || {};
+    const ov = f.overlap || {};
+    if (d.overlaps_demand_50 === true) {
+      return "demand-50 overlap · " + [d.demand_tf, d.demand_50 != null ? px(d.demand_50) : ""].filter(Boolean).join(" ");
+    }
+    const hits = [];
+    if (ov.overlap_d1_50 || ov["overlap_d1_50_4061.90"]) hits.push("D1 50 4061.90");
+    if (ov.overlap_m30_50 || ov["overlap_m30_50_4382.5"]) hits.push("M30 50 4382.5");
+    if (ov.overlap_unused_d1_4224_4304_50) hits.push("unused D1 4224–4304 50");
+    if (hits.length) return "demand-50 overlap · " + hits.join(" · ");
+    if (d.overlaps_demand_50 === false || ov.overlap_how === "none_vs_live_50" || ov.overlap_how) {
+      const mid = d.demand_50 != null ? " (demand 50 " + px(d.demand_50) + ")" : "";
+      return "no demand-50 overlap" + mid;
+    }
+    return "";
+  }
+  function collectFVGs() {
+    const out = [];
+    const seen = new Set();
+    const push = (row) => {
+      if (!row) return;
+      const key = fvgRangeKey(row.high, row.low);
+      if (!key) return;
+      if (row.mid == null && row.high != null && row.low != null) {
+        row.mid = (Number(row.high) + Number(row.low)) / 2;
+      }
+      const i = out.findIndex((x) => fvgRangeKey(x.high, x.low) === key);
+      if (i >= 0) {
+        const cur = out[i];
+        cur.late_chase = !!(cur.late_chase || row.late_chase);
+        cur.fill_state = cur.fill_state || row.fill_state;
+        cur.role = cur.role || row.role;
+        cur.demand = cur.demand || row.demand;
+        if (!cur.overlap || !Object.keys(cur.overlap).length) cur.overlap = row.overlap || {};
+        if (!cur.note) cur.note = row.note;
+        if (!cur.tf) cur.tf = row.tf;
+        return;
+      }
+      seen.add(key);
+      out.push(row);
+    };
     for (const e of state.events) {
       const p = payload(e);
-      if (p.fvg && (p.fvg.high != null || p.fvg.low != null)) fvgs.push({ e, f: p.fvg });
+      const root = pickGap(p);
+      if (root) {
+        push({
+          high: root.high, low: root.low, mid: root.mid,
+          late_chase: p.late_chase === true || (p.fvg && p.fvg.late_chase === true),
+          fill_state: p.fill_state || (p.fvg && (p.fvg.fill_state || (p.fvg.unused ? "unused" : ""))),
+          role: p.role || (p.fvg && p.fvg.role) || "profit_area",
+          demand: p.demand,
+          overlap: p.fvg && typeof p.fvg === "object" ? p.fvg : {},
+          tf: e.tf || p.tf,
+          note: p.note || p.reason,
+        });
+      }
+      if (p.fvg && typeof p.fvg === "object") {
+        const nested = pickGap(p.fvg);
+        if (nested) {
+          push({
+            high: nested.high, low: nested.low, mid: nested.mid,
+            late_chase: p.fvg.late_chase === true || p.late_chase === true,
+            fill_state: p.fvg.fill_state || (p.fvg.unused ? "unused" : p.fill_state),
+            role: p.fvg.role || "profit_area",
+            demand: p.demand,
+            overlap: p.fvg,
+            tf: p.fvg.tf || e.tf,
+            note: p.reason || p.note,
+          });
+        }
+      }
     }
-    if (!fvgs.length) {
-      $("fvg").innerHTML = `<div class="fvg-empty">No live FVG posted. Three-line template:</div>
+    if (!out.length) {
+      out.push({
+        high: 4223.505, low: 4106.475, mid: 4164.99,
+        late_chase: true, fill_state: "unused", role: "profit_area",
+        demand: { overlaps_demand_50: false, demand_50: 4061.9, demand_tf: "D1" },
+        overlap: { overlap_how: "none_vs_live_50" },
+        tf: "D1",
+        note: "Locked D1 FVG 4106.475–4223.505. Profit area, not a buy.",
+      });
+    }
+    return out;
+  }
+  function renderFVG() {
+    const fvgs = collectFVGs();
+    $("fvg").innerHTML = fvgs.map((f) => {
+      const late = f.late_chase ? `<span class="badge late">LATE CHASE</span>` : "";
+      const d50 = demand50Line(f);
+      const stateLab = f.fill_state ? " · " + esc(String(f.fill_state).replace(/_/g, " ").toUpperCase()) : "";
+      return `<div class="fvg-card">
+        <div class="fvg-head"><span class="tag">${esc((f.tf || "D1") + " FVG")}</span>${late}</div>
         <div class="fvg-lines">
-          <div class="ln"><span>HIGH</span><span class="faint">—</span></div>
-          <div class="ln"><span>MID</span><span class="faint">—</span></div>
-          <div class="ln"><span>LOW</span><span class="faint">—</span></div>
+          <div class="ln"><span>HIGH</span><span>${px(f.high)}</span></div>
+          <div class="ln"><span>MID</span><span class="gold">${px(f.mid)}</span></div>
+          <div class="ln"><span>LOW</span><span>${px(f.low)}</span></div>
         </div>
-        <div class="note" style="margin-top:8px;color:var(--faint);font:400 10px/1.4 var(--mono)">
-          FVG = PROFIT AREA. Never auto-long off a gap. Seat FVG is confirmation only.
-        </div>`;
-      return;
-    }
-    $("fvg").innerHTML = fvgs.map(({ f }) => {
-      const mid = f.mid != null ? f.mid : (f.high != null && f.low != null ? (Number(f.high) + Number(f.low)) / 2 : null);
-      return `<div class="fvg-lines">
-        <div class="ln"><span>HIGH</span><span>${px(f.high)}</span></div>
-        <div class="ln"><span>MID</span><span class="gold">${px(mid)}</span></div>
-        <div class="ln"><span>LOW</span><span>${px(f.low)}</span></div>
-        <div class="note">${esc(f.state || "PROFIT AREA · not a long")}</div>
+        <div class="fvg-role">PROFIT AREA · never a buy${stateLab}</div>
+        ${d50 ? `<div class="note">${esc(d50)}</div>` : ""}
+        ${f.note ? `<div class="note">${esc(f.note)}</div>` : ""}
       </div>`;
     }).join("");
   }
@@ -302,7 +391,7 @@
       });
     }
     const t = rows.find((r) => String(r.ticket) === "102034139") || rows[0];
-    const flt = (state.book && state.book.floating_pl) || t.statement_floating || 1604.95;
+    const flt = (state.book && state.book.floating_pl) || t.statement_floating || 1710.05;
     $("book").innerHTML = `
       <div class="book-ticket">
         <div><span class="tix">#${t.ticket}</span><span class="state">${(t.state || "lottery_ticket").toUpperCase()}</span></div>
@@ -334,7 +423,7 @@
       { k: "card", title: "CARD", det: "Original long off the June/July base. Adds both closed. Leftover is the only gold seat." },
       { k: "entry", title: "ENTRY  4043.95", det: "Ticket 102034139 · buy 0.05 (started 0.10) · 29 Jul 20:26 broker GMT+3" },
       { k: "half", title: "HALF-TP  TAKEN", det: "Size cut to 0.05. SL stays 4050. Do not move it to BE." },
-      { k: "runner", title: "RUNNER  LOTTERY TICKET", det: "Floating +1604.95 on last statement (16 Aug 20:06). Next half only if leftover doubles → 0.025." },
+      { k: "runner", title: "RUNNER  LOTTERY TICKET", det: "Floating +" + num((state.book && state.book.floating_pl) || 1710.05) + " on last statement (16 Aug 20:06). Next half only if leftover doubles → 0.025." },
       { k: "stop", title: "SL  4050  —  DO NOT MOVE", det: "SL is ABOVE entry. This is the hold. Micro never places or closes MT4. Never touch this ticket." },
     ];
     $("story").innerHTML = `<div class="story">${steps.map((s) =>
@@ -344,6 +433,24 @@
   }
 
   /* ---------- pictures ---------- */
+  function resolvePic(path) {
+    let src = String(path);
+    if (src.includes("xauusd-wait-2026-08-16")) return "images/xauusd-wait-2026-08-16.png";
+    if (src.includes("xauusd-d1-sd-labeled")) return "images/xauusd-d1-sd-labeled.png";
+    const base = src.split("/").pop();
+    if (src.startsWith("/workspace/") || src.startsWith("/home/") || !src.startsWith("images/")) {
+      src = "images/" + base;
+    }
+    return src;
+  }
+  function picDedupeKey(src) {
+    const base = String(src).split("/").pop().toLowerCase();
+    /* fvg-d1-4106-4223-2026-08-16 and fvg-D1-2026-08-05-4106-4224 are the same file */
+    if (base.includes("fvg") && (base.includes("4106") || base.includes("4223") || base.includes("4224"))) {
+      return "fvg-d1-4106-4223";
+    }
+    return base;
+  }
   function renderPictures() {
     const pics = [];
     const seen = new Set();
@@ -351,14 +458,10 @@
       const p = payload(e);
       const path = p.picture || p.visual;
       if (!path) continue;
-      let src = String(path);
-      if (src.includes("xauusd-wait-2026-08-16")) src = "images/xauusd-wait-2026-08-16.png";
-      if (src.includes("xauusd-d1-sd-labeled")) src = "images/xauusd-d1-sd-labeled.png";
-      if (src.startsWith("/workspace/")) {
-        const base = src.split("/").pop();
-        src = "images/" + base;
-      }
-      if (seen.has(src)) continue;
+      const src = resolvePic(path);
+      const key = picDedupeKey(src);
+      if (seen.has(key) || seen.has(src)) continue;
+      seen.add(key);
       seen.add(src);
       pics.push({
         src,
@@ -367,13 +470,13 @@
           (p.reason ? " · " + p.reason : ""),
       });
     }
-    if (!seen.has("images/xauusd-wait-2026-08-16.png")) {
+    if (!seen.has("images/xauusd-wait-2026-08-16.png") && !seen.has("xauusd-wait-2026-08-16.png")) {
       pics.unshift({
         src: "images/xauusd-wait-2026-08-16.png",
         cap: "WAIT · MICRO · 16 Aug 21:35 ET · unused M30 4373–4392 · spot 4400.90 above proximal · no nest",
       });
     }
-    if (!seen.has("images/xauusd-d1-sd-labeled.png")) {
+    if (!seen.has("images/xauusd-d1-sd-labeled.png") && !seen.has("xauusd-d1-sd-labeled.png")) {
       pics.push({
         src: "images/xauusd-d1-sd-labeled.png",
         cap: "D1 S/D labeled · tape through 14 Aug · unused 4223.225–4303.745 · runner 4043.95 / SL 4050",
@@ -615,7 +718,7 @@
   async function boot() {
     tickClock();
     setInterval(tickClock, 1000);
-    try { state.book = await loadJSON("book.json"); } catch (e) { state.book = { account: "5217539", balance: 5355.93, equity: 6960.88, floating_pl: 1604.95, closed_pl: 11828.93, margin: 202.20, free_margin: 6758.68, risk_usd_new_fills: 160.68, open: [{ ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050, state: "lottery_ticket", started_lots: 0.1, agent: "MACRO" }] }; }
+    try { state.book = await loadJSON("book.json"); } catch (e) { state.book = { account: "5217539", balance: 5355.93, equity: 7065.98, floating_pl: 1710.05, closed_pl: 11828.93, margin: 202.20, free_margin: 6863.78, risk_usd_new_fills: 160.68, open: [{ ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050, state: "lottery_ticket", started_lots: 0.1, agent: "MACRO" }] }; }
     ensureChart();
     await poll();
     setInterval(poll, POLL_MS);
