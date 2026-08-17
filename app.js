@@ -730,7 +730,7 @@
 
   async function pollSpot() {
     try {
-      const r = await fetch(SPOT_URL + "?t=" + Date.now(), { cache: "no-store" });
+      const r = await fetch(SPOT_URL, { cache: "no-store", headers: { "Accept": "application/json" } });
       if (!r.ok) throw new Error("gold-api " + r.status);
       const q = await r.json();
       const price = Number(q.price);
