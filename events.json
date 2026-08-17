@@ -1248,5 +1248,67 @@
       },
       "reason": "late chase; no mid hold"
     }
+  },
+  {
+    "ts": "2026-08-17T13:02:00-04:00",
+    "agent": "MICRO",
+    "action": "watch",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "card": "wait",
+      "spot": 4426.3,
+      "fvg": {
+        "lo": 4389.645,
+        "hi": 4403.805,
+        "mid": 4396.725
+      },
+      "reason": "late chase; no mid hold"
+    }
+  },
+  {
+    "ts": "2026-08-17T13:31:00-04:00",
+    "agent": "MICRO",
+    "action": "watch",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "card": "wait",
+      "spot": 4416.8,
+      "fvg": {
+        "lo": 4389.645,
+        "hi": 4403.805,
+        "mid": 4396.725
+      },
+      "chase_cap": 4417.97,
+      "pts_above_high": 13.0,
+      "reason": "dipped under chase cap but still above FVG high; no mid hold at 4396.725"
+    }
+  },
+  {
+    "ts": "2026-08-17T14:44:33-04:00",
+    "agent": "FVG",
+    "action": "fill",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "fvg_id": "fvg-M30-2026-08-17-4389-4404",
+      "fill_state": "partial",
+      "partial_low": 4398.205,
+      "mid_tagged": false,
+      "spot": 4402.69
+    }
+  },
+  {
+    "ts": "2026-08-17T14:44:33-04:00",
+    "agent": "FVG",
+    "action": "invalidate",
+    "symbol": "XAUUSD",
+    "tf": "H1",
+    "payload": {
+      "fvg_id": "fvg-H1-2026-08-17-4398-4404",
+      "fill_state": "dead",
+      "low": 4398.205
+    }
   }
 ]
