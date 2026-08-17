@@ -1,9 +1,11 @@
-/* XAUUSD desk board — static-hostable. Polls events.json. */
+/* XAUUSD desk board — static-hostable. Polls events.json, book.json, gold-api XAU. */
 (function () {
   "use strict";
 
   const TZ = "America/New_York";
   const POLL_MS = 2500;
+  const SPOT_MS = 20000;
+  const SPOT_URL = "https://api.gold-api.com/price/XAU";
   const ET = new Intl.DateTimeFormat("en-US", {
     timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit",
     hour12: false,
@@ -26,6 +28,11 @@
     series: null,
     lines: [],
     markersOn: false,
+    spot: null,
+    spotAt: null,
+    spotLive: false,
+    spotSource: null,
+    spotLine: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -106,7 +113,16 @@
   /* ---------- P/L strip from last statement ---------- */
   function renderPL() {
     const b = state.book || {};
+    const spotV = state.spot != null ? px(state.spot) : "—";
+    const spotLive = !!state.spotLive;
+    const spotK = state.spot == null ? "LIVE SPOT" : (spotLive ? "LIVE SPOT" : "STALE SPOT");
+    const spotS = state.spot == null
+      ? "indicative XAU mid · waiting"
+      : (spotLive
+        ? "indicative XAU mid · not Coinexx · not OANDA"
+        : "STALE · book bid · gold-api failed");
     const cells = [
+      { k: spotK, v: spotV, s: spotS, c: spotLive ? "gold" : "warn" },
       { k: "BALANCE", v: num(b.balance), s: "size new fills off this", c: "gold" },
       { k: "EQUITY", v: num(b.equity), s: "statement, not live", c: "" },
       { k: "FLOATING", v: (b.floating_pl >= 0 ? "+" : "") + num(b.floating_pl), s: "open runner mark", c: clsPnl(b.floating_pl) },
@@ -589,7 +605,6 @@
     add(4373, "#3dba7a", "M30 dist 4373");
     add(4303.745, "#d4a017", "D1 prox 4304");
     add(4223.225, "#d4a017", "D1 dist 4223");
-    add(4400.9, "#4aa3d4", "SPOT 4400.90");
     add(4050, "#d4544a", "SL 4050");
     add(4043.95, "#3dba7a", "ENTRY 4043.95");
 
@@ -627,6 +642,122 @@
     }
     markers.sort((a, b) => a.time - b.time);
     try { state.series.setMarkers(markers); } catch (e) {}
+    updateSpotLine();
+  }
+
+  /* ---------- live XAU spot (gold-api) ---------- */
+  function refreshDot(pollErr) {
+    const dot = $("live-dot");
+    if (!dot) return;
+    const spotBit = state.spot == null
+      ? "SPOT …"
+      : ((state.spotLive ? "SPOT " : "SPOT STALE ") + px(state.spot));
+    const pollBit = pollErr ? ("POLL FAIL · " + pollErr) : "BOARD LIVE · poll 2.5s";
+    dot.innerHTML = '<span class="pulse"></span>' + pollBit + " · " + spotBit;
+    dot.classList.toggle("fail", !!pollErr);
+  }
+
+  function renderSpot() {
+    const el = $("spot-price");
+    const meta = $("spot-meta");
+    const wrap = $("mast-spot");
+    const lab = $("spot-lab");
+    const tf = $("chart-tf");
+    const tag = $("ph-tag");
+    if (el) el.textContent = state.spot != null ? px(state.spot) : "—";
+    if (state.spotLive) {
+      if (lab) lab.textContent = "LIVE SPOT";
+      if (meta) {
+        const when = state.spotAt ? fmtET(state.spotAt) : "";
+        meta.textContent = "indicative XAU mid · not Coinexx · not OANDA" + (when ? " · " + when : "");
+      }
+      if (wrap) { wrap.classList.add("live"); wrap.classList.remove("stale"); }
+      if (tf) tf.textContent = "LIVE SPOT + DESK MARKERS";
+      if (tag) tag.textContent = "indicative XAU mid · not Coinexx · not OANDA · markers from desk events";
+    } else if (state.spot != null) {
+      if (lab) lab.textContent = "STALE SPOT";
+      if (meta) meta.textContent = "book.json bid · gold-api failed · not Coinexx live · not OANDA";
+      if (wrap) { wrap.classList.add("stale"); wrap.classList.remove("live"); }
+      if (tf) tf.textContent = "STALE SPOT + DESK MARKERS";
+      if (tag) tag.textContent = "gold-api failed · book bid fallback · not live · markers from desk events";
+    } else {
+      if (lab) lab.textContent = "LIVE SPOT";
+      if (meta) meta.textContent = "indicative XAU mid · not Coinexx · not OANDA";
+      if (wrap) wrap.classList.remove("live", "stale");
+      if (tf) tf.textContent = "PLACEHOLDER TAPE";
+      if (tag) tag.textContent = "NOT live quotes · NOT Coinexx · NOT Dukascopy file · markers from desk events";
+    }
+  }
+
+  function pulseSpot() {
+    const wrap = $("mast-spot");
+    if (!wrap) return;
+    wrap.classList.remove("tick");
+    void wrap.offsetWidth;
+    wrap.classList.add("tick");
+    setTimeout(function () { wrap.classList.remove("tick"); }, 800);
+  }
+
+  function updateSpotLine() {
+    if (!state.series || state.spot == null || Number.isNaN(Number(state.spot))) return;
+    const live = !!state.spotLive;
+    const opts = {
+      price: Number(state.spot),
+      color: live ? "#4aa3d4" : "#d4a017",
+      lineWidth: 2,
+      lineStyle: live ? 0 : 2,
+      axisLabelVisible: true,
+      title: (live ? "LIVE " : "STALE ") + px(state.spot),
+    };
+    if (state.spotLine) {
+      try { state.spotLine.applyOptions(opts); return; } catch (e) { state.spotLine = null; }
+    }
+    try { state.spotLine = state.series.createPriceLine(opts); } catch (e) {}
+  }
+
+  function applySpot(q) {
+    const prev = state.spot;
+    state.spot = q.price;
+    state.spotAt = q.updatedAt || null;
+    state.spotLive = !!q.live;
+    state.spotSource = q.source || null;
+    renderSpot();
+    renderPL();
+    updateSpotLine();
+    if (prev == null || Number(prev) !== Number(q.price)) pulseSpot();
+    refreshDot();
+  }
+
+  async function pollSpot() {
+    try {
+      const r = await fetch(SPOT_URL + "?t=" + Date.now(), { cache: "no-store" });
+      if (!r.ok) throw new Error("gold-api " + r.status);
+      const q = await r.json();
+      const price = Number(q.price);
+      if (!Number.isFinite(price) || price <= 0) throw new Error("bad XAU price");
+      applySpot({
+        price: price,
+        updatedAt: q.updatedAt || new Date().toISOString(),
+        symbol: q.symbol || "XAU",
+        live: true,
+        source: "gold-api",
+      });
+    } catch (err) {
+      const bid = state.book && state.book.bid;
+      if (bid != null && Number.isFinite(Number(bid)) && Number(bid) > 0) {
+        applySpot({
+          price: Number(bid),
+          updatedAt: (state.book && (state.book.mt4_asof || state.book.statement_time)) || null,
+          symbol: "XAU",
+          live: false,
+          source: "book",
+        });
+      } else {
+        state.spotLive = false;
+        renderSpot();
+        refreshDot();
+      }
+    }
   }
 
   /* ---------- ingest ---------- */
@@ -689,6 +820,7 @@
 
   function renderAll() {
     renderPL();
+    renderSpot();
     renderAgents();
     renderZones();
     renderFVG();
@@ -707,21 +839,28 @@
 
   async function poll() {
     try {
-      const evs = await loadJSON("events.json");
+      const evsP = loadJSON("events.json");
+      const bookP = loadJSON("book.json").catch(function () { return null; });
+      const evs = await evsP;
+      const book = await bookP;
+      if (book && typeof book === "object") state.book = book;
       ingest(evs);
       renderAll();
+      refreshDot();
     } catch (err) {
-      $("live-dot").innerHTML = '<span class="pulse"></span>POLL FAIL · ' + esc(err.message);
+      refreshDot(err.message);
     }
   }
 
   async function boot() {
     tickClock();
     setInterval(tickClock, 1000);
-    try { state.book = await loadJSON("book.json"); } catch (e) { state.book = { account: "5217539", balance: 5355.93, equity: 7065.98, floating_pl: 1710.05, closed_pl: 11828.93, margin: 202.20, free_margin: 6863.78, risk_usd_new_fills: 160.68, open: [{ ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050, state: "lottery_ticket", started_lots: 0.1, agent: "MACRO" }] }; }
+    try { state.book = await loadJSON("book.json"); } catch (e) { state.book = { account: "5217539", balance: 5355.93, equity: 7065.98, floating_pl: 1710.05, closed_pl: 11828.93, margin: 202.20, free_margin: 6863.78, risk_usd_new_fills: 160.68, bid: 4394.72, open: [{ ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050, state: "lottery_ticket", started_lots: 0.1, agent: "MACRO" }] }; }
     ensureChart();
     await poll();
     setInterval(poll, POLL_MS);
+    pollSpot();
+    setInterval(pollSpot, SPOT_MS);
   }
 
   boot();

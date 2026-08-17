@@ -18,6 +18,11 @@
       <div class="wordmark">XAUUSD</div>
       <div class="sub">GOLD ONLY · COINEXX DEMO 5217539 · JONATHAN SCHWADRON</div>
     </div>
+    <div class="mast-spot" id="mast-spot">
+      <div class="spot-k"><span class="spot-dot"></span><span id="spot-lab">LIVE SPOT</span></div>
+      <div class="spot-v" id="spot-price">—</div>
+      <div class="spot-s" id="spot-meta">indicative XAU mid · not Coinexx · not OANDA</div>
+    </div>
     <div class="mast-card">
       <div id="card-status" class="status-pill wait">WAIT</div>
       <div id="card-reason" class="card-reason">price above unused M30 · no 50% · do not chase</div>
@@ -53,9 +58,9 @@
         <div class="chart-head">
           <div>
             <span class="chart-sym">XAUUSD</span>
-            <span class="chart-tf">PLACEHOLDER TAPE</span>
+            <span class="chart-tf" id="chart-tf">PLACEHOLDER TAPE</span>
           </div>
-          <div class="ph-tag">NOT live quotes · NOT Coinexx · NOT Dukascopy file · markers from desk events</div>
+          <div class="ph-tag" id="ph-tag">NOT live quotes · NOT Coinexx · NOT Dukascopy file · markers from desk events</div>
         </div>
         <div id="chart"></div>
       </section>
