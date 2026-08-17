@@ -277,6 +277,16 @@ table.book th { text-align: left; color: var(--faint); font-weight: 500; letter-
 table.book td { padding: 5px 4px; border-bottom: 1px solid #1c1a14; vertical-align: top; }
 table.book .buy { color: var(--green); }
 
+
+.story-top {
+  margin: 8px 8px 0;
+}
+.story-top .story {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 4px 20px;
+  padding-left: 14px;
+}
 .story { position: relative; padding-left: 14px; }
 .story::before {
   content: ""; position: absolute; left: 3px; top: 4px; bottom: 4px;
