@@ -1193,5 +1193,60 @@
       "to": "MACRO",
       "fvg_id": "fvg-H1-2026-08-17-4398-4404"
     }
+  },
+  {
+    "ts": "2026-08-17T12:02:00-04:00",
+    "agent": "NEWS",
+    "action": "scan",
+    "symbol": "XAUUSD",
+    "tf": null,
+    "payload": {
+      "agent": "NEWS",
+      "agent_id": "3f2295d1-7bdc-436c-a62c-3426d47747a6",
+      "ts_et": "2026-08-17T12:02:00-04:00",
+      "event": null,
+      "when_et": null,
+      "headline": null,
+      "source": null,
+      "url": null,
+      "correlating": [],
+      "gold_implication": "Midday: Hormuz still not open. Iran-Oman route-map talk is not a reopen. Brent ~89, not $90. 10Y ~4.70 not a shock. Minutes still Wed 2pm. HOLD 102034139 / SL 4050.",
+      "book_effect": null,
+      "impact": null,
+      "do_not_flatten": true,
+      "tickets_do_not_touch": [
+        {
+          "id": "102034139",
+          "side": "buy",
+          "lots": 0.05,
+          "entry": 4043.95,
+          "sl": 4050.0
+        }
+      ],
+      "to": "DESK",
+      "quiet": true
+    }
+  },
+  {
+    "ts": "2026-08-17T12:05:00-04:00",
+    "agent": "MICRO",
+    "action": "watch",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "card": "wait",
+      "spot": 4426.6,
+      "fvg_m30": {
+        "lo": 4389.645,
+        "hi": 4403.805,
+        "mid": 4396.725
+      },
+      "fvg_h1": {
+        "lo": 4398.82,
+        "hi": 4403.805,
+        "mid": 4401.31
+      },
+      "reason": "late chase; no mid hold"
+    }
   }
 ]
