@@ -1346,5 +1346,33 @@
       "to": "DESK",
       "quiet": false
     }
+  },
+  {
+    "ts": "2026-08-17T16:41:44-04:00",
+    "agent": "FVG",
+    "action": "find",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "fvg_id": "fvg-M30-2026-08-17-4407-4414",
+      "gap_low": 4407.67,
+      "gap_high": 4414.215,
+      "gap_mid": 4410.9425,
+      "fill_state": "unused",
+      "late_chase": false,
+      "spot": 4415.2,
+      "overlaps_demand_50": false
+    }
+  },
+  {
+    "ts": "2026-08-17T16:41:44-04:00",
+    "agent": "FVG",
+    "action": "send",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "to": "MACRO+Micro",
+      "fvg_id": "fvg-M30-2026-08-17-4407-4414"
+    }
   }
 ]
