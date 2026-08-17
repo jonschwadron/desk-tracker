@@ -1310,5 +1310,41 @@
       "fill_state": "dead",
       "low": 4398.205
     }
+  },
+  {
+    "ts": "2026-08-17T16:19:00-04:00",
+    "agent": "NEWS",
+    "action": "card",
+    "symbol": "XAUUSD",
+    "tf": null,
+    "payload": {
+      "agent": "NEWS",
+      "agent_id": "3f2295d1-7bdc-436c-a62c-3426d47747a6",
+      "ts_et": "2026-08-17T16:19:00-04:00",
+      "event": "OIL_SHOCK",
+      "when_et": "2026-08-17T15:08:00-04:00",
+      "headline": "ICE Brent settled $90.81 (FT) / $90.87 (DJ), high $91.21; Fri $88.52. Hormuz still not open.",
+      "source": "FT / Dow Jones / CNBC",
+      "url": "https://markets.ft.com/data/commodities/tearsheet/historical?c=Brent+Crude+Oil",
+      "correlating": [
+        "oil",
+        "Hormuz"
+      ],
+      "gold_implication": "Brent through $90 is the oil shock. HOLD 102034139 / SL 4050. No new long on the print. Hormuz reopen is still the hurt-the-long. Trump bomb-Oman is rhetoric, not a strike.",
+      "book_effect": "hold",
+      "impact": "book_moving",
+      "do_not_flatten": true,
+      "tickets_do_not_touch": [
+        {
+          "id": "102034139",
+          "side": "buy",
+          "lots": 0.05,
+          "entry": 4043.95,
+          "sl": 4050.0
+        }
+      ],
+      "to": "DESK",
+      "quiet": false
+    }
   }
 ]
