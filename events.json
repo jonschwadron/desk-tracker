@@ -1568,5 +1568,23 @@
       "keep": 102197325,
       "lottery": 102034139
     }
+  },
+  {
+    "ts": "2026-08-18T11:00:00-04:00",
+    "agent": "MACRO",
+    "action": "stop",
+    "symbol": "XAUUSD",
+    "tf": "H1",
+    "payload": {
+      "tickets": [
+        102197325,
+        102208436,
+        102212527
+      ],
+      "sl": 4366,
+      "balance": 4867.02,
+      "keep": "102034139 SL 4050",
+      "note": "Jonathan no-good hands-off; box failed"
+    }
   }
 ]
