@@ -3,7 +3,7 @@
   "use strict";
 
   const TZ = "America/New_York";
-  const POLL_MS = 2500;
+  const POLL_MS = 1000;
   const SPOT_MS = 20000;
   const SPOT_URL = "https://api.gold-api.com/price/XAU";
   const ET = new Intl.DateTimeFormat("en-US", {
@@ -36,6 +36,38 @@
   };
 
   const $ = (id) => document.getElementById(id);
+
+  function normalizeBook(b) {
+    if (!b || typeof b !== "object") return b;
+    const raw = b.positions || b.open || [];
+    const open = raw.map(function (p) {
+      const ticket = p.ticket;
+      const entry = p.open != null ? p.open : p.entry;
+      const sl = p.sl;
+      return {
+        ticket: ticket,
+        side: p.type || p.side || "buy",
+        lots: p.lots,
+        entry: entry,
+        sl: sl,
+        tp: p.tp,
+        profit: p.profit,
+        comment: p.comment,
+        openTime: p.openTime,
+        agent: Number(p.magic) === 260814 ? "MICRO" : "MACRO",
+        state: String(ticket) === "102034139" ? "lottery_ticket" : (sl != null && entry != null && Number(sl) === Number(entry) ? "be" : "open"),
+        do_not_touch: String(ticket) === "102034139",
+      };
+    });
+    return Object.assign({}, b, {
+      open: open,
+      positions: raw,
+      account: b.account || b.login || "5217539",
+      free_margin: b.free_margin != null ? b.free_margin : b.free,
+      live: b.live === true || !!b.asof,
+    });
+  }
+
 
   function parseTs(ts) {
     if (!ts) return null;
@@ -110,9 +142,10 @@
     $("clock-et").textContent = fmtClock(new Date());
   }
 
-  /* ---------- P/L strip from last statement ---------- */
+  /* ---------- P/L strip from live book ---------- */
   function renderPL() {
     const b = state.book || {};
+    const live = !!b.live;
     const spotV = state.spot != null ? px(state.spot) : "—";
     const spotLive = !!state.spotLive;
     const spotK = state.spot == null ? "LIVE SPOT" : (spotLive ? "LIVE SPOT" : "STALE SPOT");
@@ -121,16 +154,16 @@
       : (spotLive
         ? "indicative XAU mid · not Coinexx · not OANDA"
         : "STALE · book bid · gold-api failed");
+    const asof = b.asof ? fmtET(b.asof) : "—";
     const cells = [
       { k: spotK, v: spotV, s: spotS, c: spotLive ? "gold" : "warn" },
+      { k: "BID", v: px(b.bid), s: "ask " + px(b.ask), c: "gold" },
       { k: "BALANCE", v: num(b.balance), s: "size new fills off this", c: "gold" },
-      { k: "EQUITY", v: num(b.equity), s: "statement, not live", c: "" },
-      { k: "FLOATING", v: (b.floating_pl >= 0 ? "+" : "") + num(b.floating_pl), s: "open runner mark", c: clsPnl(b.floating_pl) },
-      { k: "REALIZED", v: "+" + num(b.closed_pl), s: "closed rows on statement", c: "up" },
+      { k: "EQUITY", v: num(b.equity), s: live ? "live Coinexx" : "last snapshot", c: live ? "gold" : "warn" },
+      { k: "FLOATING", v: (Number(b.floating_pl) >= 0 ? "+" : "") + num(b.floating_pl), s: "open mark", c: clsPnl(b.floating_pl) },
       { k: "MARGIN", v: num(b.margin), s: "free " + num(b.free_margin), c: "" },
-      { k: "RISK / FILL", v: "$" + num(b.risk_usd_new_fills), s: (b.risk_pct || 3) + "% / cap " + (b.risk_pct_cap || 4) + "%", c: "gold" },
-      { k: "ACCOUNT", v: b.account || "5217539", s: (b.server || "Coinexx-Demo") + " · " + (b.broker_tz || "GMT+3"), c: "" },
-      { k: "STATEMENT", v: "16 Aug 20:06", s: b.statement_label || "LAST STATEMENT — not live Coinexx", c: "warn" },
+      { k: "ACCOUNT", v: b.account || "5217539", s: (b.server || "Coinexx-Demo"), c: "" },
+      { k: live ? "LIVE BOOK" : "BOOK", v: asof, s: live ? "MT4 tick · no git" : "stale Pages snapshot", c: live ? "up" : "warn" },
     ];
     $("pl-strip").innerHTML = cells.map((c) =>
       `<div class="pl-cell"><div class="k">${c.k}</div><div class="v ${c.c}">${c.v}</div><div class="s">${c.s}</div></div>`
@@ -397,38 +430,32 @@
     return ev ? payload(ev) : null;
   }
   function renderBook() {
-    const open = (state.book && state.book.open) || [];
-    const run = lotteryFromEvents() || {};
-    let rows = open.slice();
-    if (!rows.some((r) => String(r.ticket) === "102034139")) {
-      rows.unshift({
-        ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050,
-        tp: null, state: "lottery_ticket", agent: "MACRO", do_not_touch: true,
-      });
-    }
-    const t = rows.find((r) => String(r.ticket) === "102034139") || rows[0];
-    const flt = (state.book && state.book.floating_pl) || t.statement_floating || 1710.05;
+    const b = state.book || {};
+    const rows = (b.open || []).slice();
+    const live = !!b.live;
+    const run = rows.find((r) => String(r.ticket) === "102034139") || rows[0] || {};
+    const leftover = rows.find((r) => String(r.ticket) === "102177113");
+    const flt = b.floating_pl;
     $("book").innerHTML = `
       <div class="book-ticket">
-        <div><span class="tix">#${t.ticket}</span><span class="state">${(t.state || "lottery_ticket").toUpperCase()}</span></div>
-        <div class="kv"><span class="k">side</span><span class="buy">BUY / LONG</span></div>
-        <div class="kv"><span class="k">lots</span><span>${t.lots} <span class="s">(started ${t.started_lots || run.started_lots || 0.1})</span></span></div>
-        <div class="kv"><span class="k">entry</span><span>${px(t.entry || run.open_price)}</span></div>
-        <div class="kv"><span class="k">SL</span><span class="dn">${px(t.sl)} · ABOVE entry · DO NOT MOVE</span></div>
-        <div class="kv"><span class="k">half-TP</span><span>taken · leftover is the runner</span></div>
-        <div class="kv"><span class="k">TP / runner</span><span>none · let it run</span></div>
-        <div class="kv"><span class="k">risk %</span><span>n/a on leftover · new fills 3%</span></div>
-        <div class="kv"><span class="k">floating (stmt)</span><span class="up">+${num(flt)}</span></div>
-        <div class="kv"><span class="k">carded by</span><span class="gold">MACRO</span></div>
-        <div class="do-not">DO NOT TOUCH · DO NOT FLATTEN · next half only if leftover doubles → 0.025, leave SL 4050. Adds both closed. No third gold long.</div>
+        <div><span class="tix">#${run.ticket || "—"}</span><span class="state">${(run.state || (live ? "live" : "open")).toString().toUpperCase()}</span></div>
+        <div class="kv"><span class="k">side</span><span class="buy">${(run.side || "buy").toUpperCase()}</span></div>
+        <div class="kv"><span class="k">lots</span><span>${run.lots != null ? run.lots : "—"}</span></div>
+        <div class="kv"><span class="k">entry</span><span>${px(run.entry)}</span></div>
+        <div class="kv"><span class="k">SL</span><span class="dn">${px(run.sl)}</span></div>
+        <div class="kv"><span class="k">ticket P/L</span><span class="${clsPnl(run.profit)}">${run.profit == null ? "—" : ((Number(run.profit) >= 0 ? "+" : "") + num(run.profit))}</span></div>
+        <div class="kv"><span class="k">book float</span><span class="${clsPnl(flt)}">${flt == null ? "—" : ((Number(flt) >= 0 ? "+" : "") + num(flt))}</span></div>
+        <div class="kv"><span class="k">bid / asof</span><span>${px(b.bid)} · ${b.asof ? fmtET(b.asof) : "—"}</span></div>
+        <div class="do-not">${live ? "LIVE MT4 · " : "SNAPSHOT · "}DO NOT FLATTEN 102034139 · SL 4050 stays.${leftover ? " Leftover 102177113 BE stays." : ""}</div>
       </div>
       <div class="table-wrap"><table class="book">
-        <thead><tr><th>TICKET</th><th>SIDE</th><th>ENTRY</th><th>SL</th><th>LOTS</th><th>FLT</th><th>AGENT</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr>
+        <thead><tr><th>TICKET</th><th>SIDE</th><th>ENTRY</th><th>SL</th><th>LOTS</th><th>P/L</th><th>AGENT</th></tr></thead>
+        <tbody>${rows.length ? rows.map((r) => `<tr>
           <td>${r.ticket}</td><td class="buy">${(r.side || "buy").toUpperCase()}</td>
           <td>${px(r.entry)}</td><td>${px(r.sl)}</td><td>${r.lots}</td>
-          <td class="up">+${num(flt)}</td><td>${r.agent || "MACRO"}</td>
-        </tr>`).join("")}</tbody>
+          <td class="${clsPnl(r.profit)}">${r.profit == null ? "—" : ((Number(r.profit) >= 0 ? "+" : "") + num(r.profit))}</td>
+          <td>${r.agent || ""}</td>
+        </tr>`).join("") : `<tr><td colspan="7">no open tickets</td></tr>`}</tbody>
       </table></div>`;
   }
 
@@ -652,7 +679,7 @@
     const spotBit = state.spot == null
       ? "SPOT …"
       : ((state.spotLive ? "SPOT " : "SPOT STALE ") + px(state.spot));
-    const pollBit = pollErr ? ("POLL FAIL · " + pollErr) : "BOARD LIVE · poll 2.5s";
+    const pollBit = pollErr ? ("POLL FAIL · " + pollErr) : "BOARD LIVE · poll 1s";
     dot.innerHTML = '<span class="pulse"></span>' + pollBit + " · " + spotBit;
     dot.classList.toggle("fail", !!pollErr);
   }
@@ -858,8 +885,9 @@
       const evsP = loadJSON("events.json");
       const bookP = loadJSON("book.json").catch(function () { return null; });
       const evs = await evsP;
-      const book = await bookP;
+      let book = await bookP;
       if (book && typeof book === "object") {
+        book = normalizeBook(book);
         const prev = state.book;
         state.book = book;
         if (prev && (prev.equity !== book.equity || prev.bid !== book.bid)) {
@@ -878,7 +906,7 @@
   async function boot() {
     tickClock();
     setInterval(tickClock, 1000);
-    try { state.book = await loadJSON("book.json"); } catch (e) { state.book = { account: "5217539", balance: 5355.93, equity: 7065.98, floating_pl: 1710.05, closed_pl: 11828.93, margin: 202.20, free_margin: 6863.78, risk_usd_new_fills: 160.68, bid: 4394.72, open: [{ ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050, state: "lottery_ticket", started_lots: 0.1, agent: "MACRO" }] }; }
+    try { state.book = normalizeBook(await loadJSON("book.json")); } catch (e) { state.book = { account: "5217539", balance: 5355.93, equity: 7065.98, floating_pl: 1710.05, closed_pl: 11828.93, margin: 202.20, free_margin: 6863.78, risk_usd_new_fills: 160.68, bid: 4394.72, open: [{ ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050, state: "lottery_ticket", started_lots: 0.1, agent: "MACRO" }] }; }
     ensureChart();
     await poll();
     setInterval(poll, POLL_MS);
