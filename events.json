@@ -1627,5 +1627,26 @@
       "visual": "/workspace/desk/fvg/cards/hunt-20260818-1111-M30.png",
       "note": "Completed 10:30 M30 close 4366.685 through 4375.425. Remnant dead. No new unused bullish FVG. No invert-long."
     }
+  },
+  {
+    "ts": "2026-08-18T11:43:40-04:00",
+    "agent": "FVG",
+    "action": "find",
+    "symbol": "XAUUSD",
+    "tf": "H1",
+    "payload": {
+      "fvg_id": "fvg-H1-2026-08-17-4417-4419",
+      "gap_low": 4417.28,
+      "gap_high": 4419.06,
+      "gap_mid": 4418.17,
+      "invert": "down",
+      "invert_candle": "2026-08-17T21:00-04:00",
+      "invert_close": 4408.185,
+      "body_close_1_2": true,
+      "a_plus": false,
+      "skip": "tiny 1.78 vs H1 range",
+      "spot": 4356.265,
+      "visual": "/workspace/desk/fvg/cards/bear-ifvg-20260818-1125-H1.png"
+    }
   }
 ]
