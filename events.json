@@ -1374,5 +1374,46 @@
       "to": "MACRO+Micro",
       "fvg_id": "fvg-M30-2026-08-17-4407-4414"
     }
+  },
+  {
+    "ts": "2026-08-18T08:05:00-04:00",
+    "agent": "NEWS",
+    "action": "card",
+    "symbol": "XAUUSD",
+    "tf": null,
+    "payload": {
+      "agent": "NEWS",
+      "agent_id": "3f2295d1-7bdc-436c-a62c-3426d47747a6",
+      "ts_et": "2026-08-18T08:05:00-04:00",
+      "event": "HORMUZ",
+      "when_et": "2026-08-18T00:00:00-04:00",
+      "headline": "UKMTO: outbound Hormuz vessel hit by unknown projectile; engine-room damage, crew casualty. Hormuz still closed.",
+      "source": "AP / UKMTO / Al Jazeera",
+      "url": "https://apnews.com/article/iran-us-israel-lebanon-gaza-hormuz-august-18-2026-9c48af23b713709e8e170191fbc78c2a",
+      "correlating": [
+        "Hormuz",
+        "Iran",
+        "oil"
+      ],
+      "gold_implication": "Fresh Hormuz hit, not a reopen. Qalibaf: strait stays shut until US lifts blockade/sanctions. HOLD 102034139 / SL 4050. No new long on the hit. Reopen is still the hurt. Do not flatten. Leftover 102177113 stays.",
+      "book_effect": "hold",
+      "impact": "book_moving",
+      "do_not_flatten": true,
+      "tickets_do_not_touch": [
+        {
+          "id": "102034139",
+          "side": "buy",
+          "lots": 0.05,
+          "entry": 4043.95,
+          "sl": 4050.0
+        },
+        {
+          "id": "102177113",
+          "note": "leftover stays"
+        }
+      ],
+      "to": "DESK",
+      "quiet": false
+    }
   }
 ]
