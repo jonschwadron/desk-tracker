@@ -1555,5 +1555,18 @@
       "add": "Tempo Module 2",
       "status": "locked"
     }
+  },
+  {
+    "ts": "2026-08-18T10:34:00-04:00",
+    "agent": "MACRO",
+    "action": "close",
+    "symbol": "XAUUSD",
+    "tf": "H1",
+    "payload": {
+      "ticket": 102201786,
+      "reason": "scratch worse add tagged back to entry",
+      "keep": 102197325,
+      "lottery": 102034139
+    }
   }
 ]
