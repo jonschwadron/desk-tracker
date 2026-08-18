@@ -1,16 +1,16 @@
 {
-  "asof": "2026-08-17T17:49:41-04:00",
-  "source_time": "2026.08.18 00:49:24",
+  "asof": "2026-08-18T08:08:30-04:00",
+  "source_time": "2026.08.18 15:08:30",
   "server": "Coinexx-Demo",
   "login": 5217539,
-  "balance": 5461.98,
-  "equity": 7358.22,
-  "floating_pl": 1896.24,
-  "margin": 333.88,
-  "free": 7024.34,
+  "balance": 5459.52,
+  "equity": 7113.42,
+  "floating_pl": 1653.9,
+  "margin": 1520.46,
+  "free": 5592.96,
   "symbol": "XAUUSD",
-  "bid": 4416.41,
-  "ask": 4416.99,
+  "bid": 4392.75,
+  "ask": 4392.95,
   "positions": [
     {
       "ticket": 102034139,
@@ -19,22 +19,46 @@
       "open": 4043.95,
       "sl": 4050.0,
       "tp": 0.0,
-      "profit": 1816.2,
+      "profit": 1697.9,
       "magic": 0,
       "comment": "from #101722338",
       "openTime": "2026.07.29 20:26:01"
     },
     {
-      "ticket": 102177113,
+      "ticket": 102196956,
       "type": "buy",
-      "lots": 0.03,
-      "open": 4389.25,
-      "sl": 4389.25,
+      "lots": 0.1,
+      "open": 4397.55,
+      "sl": 4376.0,
       "tp": 0.0,
-      "profit": 80.04,
-      "magic": 260814,
-      "comment": "from #102175407",
-      "openTime": "2026.08.17 16:35:08"
+      "profit": -48.2,
+      "magic": 0,
+      "comment": "",
+      "openTime": "2026.08.18 13:58:41"
+    },
+    {
+      "ticket": 102197127,
+      "type": "buy",
+      "lots": 0.1,
+      "open": 4393.67,
+      "sl": 4376.0,
+      "tp": 0.0,
+      "profit": -9.4,
+      "magic": 0,
+      "comment": "",
+      "openTime": "2026.08.18 14:07:29"
+    },
+    {
+      "ticket": 102197325,
+      "type": "buy",
+      "lots": 0.1,
+      "open": 4391.37,
+      "sl": 4376.0,
+      "tp": 0.0,
+      "profit": 13.6,
+      "magic": 0,
+      "comment": "",
+      "openTime": "2026.08.18 14:27:07"
     }
   ]
 }
