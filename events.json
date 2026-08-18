@@ -1415,5 +1415,61 @@
       "to": "DESK",
       "quiet": false
     }
+  },
+  {
+    "ts": "2026-08-18T08:10:00-04:00",
+    "agent": "MICRO",
+    "action": "skip",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "card": "wait",
+      "spot": 4391.25,
+      "fvg_m30": {
+        "lo": 4407.67,
+        "hi": 4414.215,
+        "mid": 4410.94,
+        "fill_state": "dead"
+      },
+      "fvg_old": {
+        "lo": 4389.645,
+        "hi": 4403.805,
+        "fill_state": "dead"
+      },
+      "htf_box": {
+        "tf": "M30",
+        "distal": 4373.0,
+        "proximal": 4392.0,
+        "mid": 4382.5,
+        "unused": false
+      },
+      "overnight_low": 4385.38,
+      "reason": "slice-through 4407.67; no unused bullish FVG mid hold; used box no rebuy",
+      "refuse": "used_fvg_slice",
+      "quiet": true
+    }
+  },
+  {
+    "ts": "2026-08-18T08:14:47-04:00",
+    "agent": "FVG",
+    "action": "invalidate",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "fvg_id": "fvg-M30-2026-08-17-4407-4414",
+      "fill_state": "dead",
+      "note": "overnight slice through 4407.67"
+    }
+  },
+  {
+    "ts": "2026-08-18T08:14:47-04:00",
+    "agent": "FVG",
+    "action": "invalidate",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "fvg_id": "fvg-M30-2026-08-17-4389-4404",
+      "fill_state": "dead"
+    }
   }
 ]
