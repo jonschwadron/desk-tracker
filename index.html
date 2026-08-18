@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>XAUUSD DESK · 5217539</title>
   <style>body{background:#050505;color:#c9a227}</style>
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <div id="hud">
@@ -32,16 +32,7 @@
         <div class="row"><span>equity</span><b id="eq">—</b></div>
         <div class="row"><span>balance</span><b id="bal">—</b></div>
       </div>
-      <div class="bars">
-        <div class="bar-row">
-          <div class="bar-lab"><span>LOTTERY</span><b id="lotShare">—</b></div>
-          <div class="track"><i id="lotBar"></i></div>
-        </div>
-        <div class="bar-row">
-          <div class="bar-lab"><span>LEFTOVER</span><b id="leftShare">—</b></div>
-          <div class="track"><i id="leftBar"></i></div>
-        </div>
-      </div>
+      <div class="bars" id="bars"></div>
       <div id="bookFoot" class="foot warn">Do not flatten 102034139</div>
     </section>
 
@@ -66,7 +57,7 @@
     <section id="kpis"></section>
 
     <section id="mat">
-      <div class="k">LEFTOVER vs LOTTERY $</div>
+      <div class="k">LOTTERY vs ADD $</div>
       <div id="matGrid"></div>
     </section>
 
@@ -79,6 +70,6 @@
       <div id="ticker"></div>
     </footer>
   </div>
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
