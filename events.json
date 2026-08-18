@@ -1586,5 +1586,27 @@
       "keep": "102034139 SL 4050",
       "note": "Jonathan no-good hands-off; box failed"
     }
+  },
+  {
+    "ts": "2026-08-18T11:16:58-04:00",
+    "agent": "FVG",
+    "action": "hunt",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "slot": "10:36",
+      "spot": 4381.45,
+      "result": "NOTHING_NEW",
+      "new_unused_bullish_fvg": false,
+      "a_plus_ifvg": false,
+      "fill_state_change": false,
+      "remnant": {
+        "id": "fvg-M30-2026-08-17-4375-4388",
+        "fill_state": "partial",
+        "partial_low": 4376.195,
+        "dead": false
+      },
+      "d1_control": "supply"
+    }
   }
 ]
