@@ -1494,5 +1494,32 @@
       },
       "d1_control": "supply"
     }
+  },
+  {
+    "ts": "2026-08-18T09:56:00-04:00",
+    "agent": "MACRO",
+    "action": "scan",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "kind": "L10_LOCK",
+      "model": "A+ iFVG bullish mirror",
+      "killzone": "09:30-11:00 ET",
+      "status": "locked",
+      "no_add": "4373-4392",
+      "dead_fvg": "4407-4414"
+    }
+  },
+  {
+    "ts": "2026-08-18T10:03:00-04:00",
+    "agent": "MACRO",
+    "action": "scan",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "kind": "L11_LOCK",
+      "add": "TempoICT on L10",
+      "status": "locked"
+    }
   }
 ]
