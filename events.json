@@ -1521,5 +1521,27 @@
       "add": "TempoICT on L10",
       "status": "locked"
     }
+  },
+  {
+    "ts": "2026-08-18T10:14:07-04:00",
+    "agent": "FVG",
+    "action": "hunt",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "spot": 4400.97,
+      "result": "NOTHING_NEW",
+      "new_unused_bullish_fvg": false,
+      "a_plus_ifvg": false,
+      "fill_state_change": false,
+      "remnant": {
+        "id": "fvg-M30-2026-08-17-4375-4388",
+        "fill_state": "partial",
+        "partial_low": 4376.195,
+        "dead": false
+      },
+      "ifvg_skip": "09:30 sweep/rip faded back into range. No bearish FVG. Not an invert.",
+      "d1_control": "supply"
+    }
   }
 ]
