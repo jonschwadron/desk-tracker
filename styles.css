@@ -45,13 +45,15 @@ html,body{overflow:hidden;}
 .meta{margin-bottom:6px;}
 .row{display:flex;justify-content:space-between;gap:8px;font-size:11px;line-height:1.45;color:var(--gold);}
 .row b{color:var(--hi);font-weight:500;}
-.bars{margin-top:auto;}
-.bar-row{margin-top:5px;}
-.bar-lab{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);}
-.bar-lab b{color:var(--hi);font-weight:500;}
+.bars{margin-top:auto;overflow:auto;min-height:0;}
+.bar-row{margin-top:4px;}
+.bar-lab{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--dim);}
+.bar-lab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.bar-lab b{color:var(--hi);font-weight:500;flex:0 0 auto;}
 .track{height:4px;background:#1a1408;margin-top:2px;position:relative;}
 .track i{display:block;height:100%;background:var(--gold);width:0;}
-#leftBar{background:var(--dim);}
+.track i.lot{background:var(--gold);}
+.track i.add{background:var(--dim);}
 .foot{color:var(--dim);font-size:10px;margin-top:6px;letter-spacing:.04em;}
 .warn{color:var(--hi);}
 .tape-wrap{position:relative;flex:1;min-height:0;margin-top:4px;}
@@ -76,7 +78,7 @@ html,body{overflow:hidden;}
 #kpis .kv{color:var(--hi);font-size:15px;line-height:1.15;margin-top:1px;}
 #kpis .ks{color:var(--dim);font-size:9px;margin-top:2px;letter-spacing:.04em;}
 #matGrid{flex:1;min-height:0;display:flex;flex-direction:column;margin-top:3px;}
-.mrow{display:grid;grid-template-columns:54px repeat(8,minmax(0,1fr));border-top:1px solid var(--line);flex:1;}
+.mrow{display:grid;grid-template-columns:58px repeat(8,minmax(0,1fr));border-top:1px solid var(--line);flex:1;}
 .mrow:first-child{border-top:none;}
 .mrow.head{flex:0 0 auto;}
 .mcell{padding:3px 4px;border-left:1px solid var(--line);font-size:10px;min-width:0;overflow:hidden;white-space:nowrap;}
