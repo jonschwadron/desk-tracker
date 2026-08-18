@@ -1,9 +1,7 @@
 const LIVE_BASE = "https://geek-talk-incidents-organizer.trycloudflare.com";
 const GOLD_URL = "https://api.gold-api.com/price/XAU";
-const FALLBACK = {
-  102034139: { tag: "LOTTERY", lots: 0.05, open: 4043.95, sl: 4050 },
-  102177113: { tag: "LEFTOVER", lots: 0.03, open: 4389.25, sl: 4389.25 },
-};
+const LOTTERY_ID = "102034139";
+const LOTTERY_FB = { tag: "LOTTERY", lots: 0.05, open: 4043.95, sl: 4050 };
 const LVL = {
   lotOpen: 4043.95,
   lotSl: 4050,
@@ -11,7 +9,6 @@ const LVL = {
   d1Lo: 4224,
   d1Hi: 4304,
   d1Mid: 4264,
-  leftOpen: 4389.25,
   fvgLo: 4407,
   fvgHi: 4414,
   fvgMid: 4410.5,
@@ -127,21 +124,75 @@ function parseDeskEvents(list) {
   }
 }
 
-function resolvePos(id) {
-  const known = FALLBACK[id];
+function ticketFromLive(p) {
+  const isLot = String(p.ticket) === LOTTERY_ID;
+  return {
+    present: true,
+    ticket: p.ticket,
+    tag: isLot ? "LOTTERY" : "ADD",
+    lots: num(p.lots),
+    open: num(p.open),
+    sl: num(p.sl),
+    profit: num(p.profit),
+    type: p.type,
+  };
+}
+
+function liveTickets() {
   const list = book && Array.isArray(book.positions) ? book.positions : null;
-  const live = list ? list.find(function (p) { return String(p.ticket) === String(id); }) : null;
-  if (live) {
-    return {
-      present: true,
-      ticket: live.ticket,
-      lots: num(live.lots) != null ? num(live.lots) : known.lots,
-      open: num(live.open) != null ? num(live.open) : known.open,
-      sl: num(live.sl) != null ? num(live.sl) : known.sl,
-      profit: num(live.profit),
-    };
+  if (!list) {
+    return [{
+      present: false,
+      awaiting: true,
+      ticket: Number(LOTTERY_ID),
+      tag: "LOTTERY",
+      lots: LOTTERY_FB.lots,
+      open: LOTTERY_FB.open,
+      sl: LOTTERY_FB.sl,
+      profit: null,
+    }];
   }
-  return { present: false, ticket: id, lots: known.lots, open: known.open, sl: known.sl, profit: null, awaiting: !list };
+  const out = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const p = list[i];
+    if (!p) continue;
+    const isLot = String(p.ticket) === LOTTERY_ID;
+    const isBuy = !p.type || String(p.type).toLowerCase() === "buy";
+    if (isLot || isBuy) out.push(ticketFromLive(p));
+  }
+  return out;
+}
+
+function lotteryOf(tickets) {
+  for (let i = 0; i < tickets.length; i += 1) {
+    if (tickets[i].tag === "LOTTERY") return tickets[i];
+  }
+  return null;
+}
+function addsOf(tickets) {
+  return tickets.filter(function (t) { return t.tag === "ADD"; });
+}
+
+function addSlPx(adds) {
+  const sls = [];
+  for (let i = 0; i < adds.length; i += 1) {
+    if (Number.isFinite(adds[i].sl)) sls.push(adds[i].sl);
+  }
+  if (!sls.length) return null;
+  return sls[0];
+}
+
+function addPlAt(adds, px) {
+  let sum = 0;
+  let any = false;
+  for (let i = 0; i < adds.length; i += 1) {
+    const n = buyPl(adds[i].lots, px, adds[i].open);
+    if (n != null) {
+      sum += n;
+      any = true;
+    }
+  }
+  return any ? sum : null;
 }
 
 function fvgBand() {
@@ -263,17 +314,22 @@ function drawTape() {
   }
 }
 
-function namedLevels(bid, fvg, sup) {
-  return [
+function namedLevels(bid, fvg, sup, addSl) {
+  const tiles = [
     { key: "sl", px: LVL.lotSl, label: "4050", sub: "SL LOCKED", who: "LOT", kind: "point" },
     { key: "open", px: LVL.lotOpen, label: fmtPx(LVL.lotOpen), sub: "LOT OPEN", who: "LOT", kind: "point" },
     { key: "late", px: LVL.lateMid, label: fmtPx(LVL.lateMid), sub: "LATE CHASE", who: "LOT", kind: "point" },
     { key: "d1", px: LVL.d1Mid, label: "4224–4304", sub: "D1 50% 4264", who: "LOT", kind: "band", lo: LVL.d1Lo, hi: LVL.d1Hi },
-    { key: "be", px: LVL.leftOpen, label: fmtPx(LVL.leftOpen), sub: "LEFT BE", who: "LEFT", kind: "point" },
-    { key: "bid", px: bid, label: Number.isFinite(bid) ? fmtPx(bid) : "—", sub: "LIVE BID", who: "BOTH", kind: "live" },
-    { key: "fvg", px: fvg.mid, label: fmtPx(fvg.lo) + "–" + fmtPx(fvg.hi), sub: "FVG", who: "LEFT", kind: "band", lo: fvg.lo, hi: fvg.hi },
-    { key: "sup", px: sup.mid, label: fmtPx(sup.lo) + "–" + fmtPx(sup.hi), sub: "SUPPLY", who: "LEFT", kind: "band", lo: sup.lo, hi: sup.hi },
   ];
+  if (Number.isFinite(addSl)) {
+    tiles.push({ key: "asl", px: addSl, label: fmtPx(addSl), sub: "ADD SL", who: "ADD", kind: "point" });
+  }
+  tiles.push(
+    { key: "bid", px: bid, label: Number.isFinite(bid) ? fmtPx(bid) : "—", sub: "LIVE BID", who: "BOTH", kind: "live" },
+    { key: "fvg", px: fvg.mid, label: fmtPx(fvg.lo) + "–" + fmtPx(fvg.hi), sub: "FVG", who: "ADD", kind: "band", lo: fvg.lo, hi: fvg.hi },
+    { key: "sup", px: sup.mid, label: fmtPx(sup.lo) + "–" + fmtPx(sup.hi), sub: "SUPPLY", who: "ADD", kind: "band", lo: sup.lo, hi: sup.hi }
+  );
+  return tiles;
 }
 
 function tileState(px, bid) {
@@ -282,40 +338,55 @@ function tileState(px, bid) {
   return px < bid ? "below" : "above";
 }
 
-function impliedFor(who, lot, left, px, bid) {
-  if (who === "LOT") return buyPl(lot.lots, px, lot.open);
-  if (who === "LEFT") return buyPl(left.lots, px, left.open);
+function impliedFor(who, lot, adds, px, bid) {
+  if (who === "LOT") return lot ? buyPl(lot.lots, px, lot.open) : null;
+  if (who === "ADD") return addPlAt(adds, px);
   const a = nowProfit(lot, bid);
-  const b = nowProfit(left, bid);
+  const b = addPlNow(adds, bid);
   if (a == null && b == null) return null;
   return (a || 0) + (b || 0);
 }
 
-function fillLevels(lot, left, bid, fvg, sup) {
+function addPlNow(adds, bid) {
+  let sum = 0;
+  let any = false;
+  for (let i = 0; i < adds.length; i += 1) {
+    const n = nowProfit(adds[i], bid);
+    if (n != null) {
+      sum += n;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+function fillLevels(lot, adds, bid, fvg, sup, addSl) {
   const el = $("levelGrid");
   if (!el) return;
-  const tiles = namedLevels(bid, fvg, sup);
+  const tiles = namedLevels(bid, fvg, sup, addSl);
   el.innerHTML = tiles.map(function (t) {
     const st = t.kind === "live" ? "at" : tileState(t.px, bid);
     const dollars = t.kind === "live"
-      ? impliedFor("BOTH", lot, left, bid, bid)
-      : impliedFor(t.who, lot, left, t.px, bid);
+      ? impliedFor("BOTH", lot, adds, bid, bid)
+      : impliedFor(t.who, lot, adds, t.px, bid);
     return "<div class=\"tile " + st + "\"><div class=\"tk\">" + esc(t.sub) + "</div><div class=\"tv\">" + esc(t.label) + "</div><div class=\"td\">" + esc(t.who + "  " + fmtMoney(dollars)) + "</div></div>";
   }).join("");
 }
 
-function drawPath(lot, left, bid, fvg, sup) {
+function drawPath(lot, adds, bid, fvg, sup, addSl) {
   const el = $("pathSvg");
   if (!el) return;
   const marks = [
-    { px: LVL.lotSl, label: "4050 SL" },
-    { px: LVL.lotOpen, label: "4044" },
     { px: LVL.lateMid, label: "4165 LATE" },
     { px: LVL.d1Mid, label: "4264 D1", lo: LVL.d1Lo, hi: LVL.d1Hi },
-    { px: LVL.leftOpen, label: "4389 BE" },
     { px: fvg.mid, label: "FVG", lo: fvg.lo, hi: fvg.hi },
     { px: sup.mid, label: "SUP", lo: sup.lo, hi: sup.hi },
   ];
+  if (lot) {
+    marks.push({ px: LVL.lotSl, label: "4050 SL" });
+    marks.push({ px: LVL.lotOpen, label: "4044" });
+  }
+  if (Number.isFinite(addSl)) marks.push({ px: addSl, label: fmtPx(addSl) + " SL" });
   if (Number.isFinite(bid)) marks.push({ px: bid, label: fmtPx(bid), live: true });
   const xs = marks.map(function (m) { return m.px; }).concat([fvg.lo, fvg.hi, LVL.d1Lo, LVL.d1Hi, sup.lo, sup.hi]);
   let lo = Math.min.apply(null, xs.filter(Number.isFinite));
@@ -348,35 +419,50 @@ function drawPath(lot, left, bid, fvg, sup) {
     svg += "<circle cx=\"" + xb.toFixed(1) + "\" cy=\"42\" r=\"3.2\" fill=\"#7ec8c8\" />";
     svg += "<circle cx=\"" + xb.toFixed(1) + "\" cy=\"126\" r=\"3.2\" fill=\"#7ec8c8\" />";
     svg += "<text x=\"" + (xb + 6).toFixed(1) + "\" y=\"18\" fill=\"#7ec8c8\" font-size=\"9\" font-family=\"ui-monospace,SFMono-Regular,Menlo,monospace\">" + esc(fmtPx(bid)) + "</text>";
-    const lotT = [
-      { px: LVL.d1Mid, y: 28, lab: fmtMoney(buyPl(lot.lots, LVL.d1Mid, lot.open)), lift: -18 },
-      { px: LVL.lateMid, y: 56, lab: fmtMoney(buyPl(lot.lots, LVL.lateMid, lot.open)), lift: 16 },
-      { px: LVL.lotSl, y: 30, lab: fmtMoney(buyPl(lot.lots, LVL.lotSl, lot.open)), lift: -22 },
-    ];
-    lotT.forEach(function (t) {
-      const xt = xOf(t.px);
-      svg += "<path d=\"" + curve(xb, 42, xt, t.y, t.lift) + "\" fill=\"none\" stroke=\"#7ec8c8\" stroke-width=\"1.15\" />";
-      svg += "<text x=\"" + xt.toFixed(1) + "\" y=\"" + (t.y - 5) + "\" text-anchor=\"middle\" fill=\"#7ec8c8\" font-size=\"9\" font-family=\"ui-monospace,SFMono-Regular,Menlo,monospace\">" + esc(t.lab) + "</text>";
-    });
-    const leftT = [
-      { px: fvg.mid, y: 142, lab: fmtMoney(buyPl(left.lots, fvg.mid, left.open)), lift: 16 },
-      { px: sup.mid, y: 158, lab: fmtMoney(buyPl(left.lots, sup.mid, left.open)), lift: 22 },
-      { px: LVL.leftOpen, y: 150, lab: "$0 DIES", lift: -10 },
-    ];
-    leftT.forEach(function (t) {
-      const xt = xOf(t.px);
-      svg += "<path d=\"" + curve(xb, 126, xt, t.y, t.lift) + "\" fill=\"none\" stroke=\"#7ec8c8\" stroke-width=\"1.15\" />";
-      svg += "<text x=\"" + xt.toFixed(1) + "\" y=\"" + (t.y + 10) + "\" text-anchor=\"middle\" fill=\"#7ec8c8\" font-size=\"9\" font-family=\"ui-monospace,SFMono-Regular,Menlo,monospace\">" + esc(t.lab) + "</text>";
-    });
+    if (lot) {
+      const lotT = [
+        { px: LVL.d1Mid, y: 28, lab: fmtMoney(buyPl(lot.lots, LVL.d1Mid, lot.open)), lift: -18 },
+        { px: LVL.lateMid, y: 56, lab: fmtMoney(buyPl(lot.lots, LVL.lateMid, lot.open)), lift: 16 },
+        { px: LVL.lotSl, y: 30, lab: fmtMoney(buyPl(lot.lots, LVL.lotSl, lot.open)), lift: -22 },
+      ];
+      lotT.forEach(function (t) {
+        const xt = xOf(t.px);
+        svg += "<path d=\"" + curve(xb, 42, xt, t.y, t.lift) + "\" fill=\"none\" stroke=\"#7ec8c8\" stroke-width=\"1.15\" />";
+        svg += "<text x=\"" + xt.toFixed(1) + "\" y=\"" + (t.y - 5) + "\" text-anchor=\"middle\" fill=\"#7ec8c8\" font-size=\"9\" font-family=\"ui-monospace,SFMono-Regular,Menlo,monospace\">" + esc(t.lab) + "</text>";
+      });
+    }
+    if (adds.length) {
+      const addT = [];
+      if (Number.isFinite(addSl)) {
+        addT.push({ px: addSl, y: 150, lab: fmtMoney(addPlAt(adds, addSl)), lift: -10 });
+      }
+      if (Number.isFinite(fvg.mid) && fvg.mid > bid) {
+        addT.push({ px: fvg.mid, y: 142, lab: fmtMoney(addPlAt(adds, fvg.mid)), lift: 16 });
+      }
+      if (Number.isFinite(sup.mid) && sup.mid > bid) {
+        addT.push({ px: sup.mid, y: 158, lab: fmtMoney(addPlAt(adds, sup.mid)), lift: 22 });
+      }
+      addT.forEach(function (t) {
+        const xt = xOf(t.px);
+        svg += "<path d=\"" + curve(xb, 126, xt, t.y, t.lift) + "\" fill=\"none\" stroke=\"#7ec8c8\" stroke-width=\"1.15\" />";
+        svg += "<text x=\"" + xt.toFixed(1) + "\" y=\"" + (t.y + 10) + "\" text-anchor=\"middle\" fill=\"#7ec8c8\" font-size=\"9\" font-family=\"ui-monospace,SFMono-Regular,Menlo,monospace\">" + esc(t.lab) + "</text>";
+      });
+    }
   }
   svg += "</svg>";
   el.innerHTML = svg;
 }
 
-function fillBook(lot, left, bid) {
-  const lotNow = nowProfit(lot, bid);
-  const leftNow = nowProfit(left, bid);
-  const fl = book && num(book.floating_pl) != null ? num(book.floating_pl) : ((lotNow != null || leftNow != null) ? (lotNow || 0) + (leftNow || 0) : null);
+function fillBook(tickets, bid) {
+  const profits = tickets.map(function (t) { return nowProfit(t, bid); });
+  let fl = book && num(book.floating_pl);
+  if (fl == null) {
+    fl = null;
+    for (let i = 0; i < profits.length; i += 1) {
+      if (profits[i] == null) continue;
+      fl = (fl == null ? 0 : fl) + profits[i];
+    }
+  }
   const eq = book && num(book.equity);
   const bal = book && num(book.balance);
   const floatEl = $("float");
@@ -386,15 +472,19 @@ function fillBook(lot, left, bid) {
   }
   if ($("eq")) $("eq").textContent = fmtMoney(eq);
   if ($("bal")) $("bal").textContent = fmtMoney(bal);
-  const lotAbs = Math.abs(lotNow || 0);
-  const leftAbs = Math.abs(leftNow || 0);
-  const tot = lotAbs + leftAbs;
-  const lotPct = tot > 0 ? (lotAbs / tot) * 100 : 0;
-  const leftPct = tot > 0 ? (leftAbs / tot) * 100 : 0;
-  if ($("lotShare")) $("lotShare").textContent = fmtMoney(lotNow) + "  " + lotPct.toFixed(0) + "%";
-  if ($("leftShare")) $("leftShare").textContent = fmtMoney(leftNow) + "  " + leftPct.toFixed(0) + "%";
-  if ($("lotBar")) $("lotBar").style.width = lotPct.toFixed(1) + "%";
-  if ($("leftBar")) $("leftBar").style.width = leftPct.toFixed(1) + "%";
+  const bars = $("bars");
+  if (!bars) return;
+  const abs = profits.map(function (n) { return Math.abs(n || 0); });
+  let tot = 0;
+  for (let i = 0; i < abs.length; i += 1) tot += abs[i];
+  bars.innerHTML = tickets.map(function (t, i) {
+    const pct = tot > 0 ? (abs[i] / tot) * 100 : 0;
+    const lab = t.tag === "LOTTERY"
+      ? "LOTTERY"
+      : ("ADD #" + t.ticket + "  " + (Number.isFinite(t.lots) ? String(t.lots) : "—") + "  SL " + fmtPx(t.sl));
+    const cls = t.tag === "LOTTERY" ? "lot" : "add";
+    return "<div class=\"bar-row\"><div class=\"bar-lab\"><span>" + esc(lab) + "</span><b>" + esc(fmtMoney(profits[i]) + "  " + pct.toFixed(0) + "%") + "</b></div><div class=\"track\"><i class=\"" + cls + "\" style=\"width:" + pct.toFixed(1) + "%\"></i></div></div>";
+  }).join("");
 }
 
 function fillHeader(bid) {
@@ -409,16 +499,34 @@ function fillHeader(bid) {
   if ($("asof")) $("asof").textContent = book && book.asof ? fmtAsof(book.asof) : "—";
 }
 
-function fillKpis(lot, left) {
+function fillKpis(lot, adds, addSl) {
   const el = $("kpis");
   if (!el) return;
-  const lotPer = lot.lots * 100;
-  const leftPer = left.lots * 100;
-  const floor = buyPl(lot.lots, lot.sl, lot.open);
+  const lotPer = lot && Number.isFinite(lot.lots) ? lot.lots * 100 : null;
+  let addLots = 0;
+  let addAny = false;
+  let eachPer = null;
+  let sameLots = true;
+  for (let i = 0; i < adds.length; i += 1) {
+    if (!Number.isFinite(adds[i].lots)) continue;
+    addAny = true;
+    addLots += adds[i].lots;
+    const p = adds[i].lots * 100;
+    if (eachPer == null) eachPer = p;
+    else if (p !== eachPer) sameLots = false;
+  }
+  const addPer = addAny ? addLots * 100 : null;
+  const floor = lot ? buyPl(lot.lots, lot.sl, lot.open) : null;
+  const addStop = Number.isFinite(addSl) ? addPlAt(adds, addSl) : null;
+  let addSub = "none";
+  if (adds.length) {
+    const eachTxt = eachPer != null && sameLots ? ("  $" + eachPer.toFixed(0) + "/$1 each") : "";
+    addSub = adds.length + "×" + (sameLots && adds[0] && Number.isFinite(adds[0].lots) ? String(adds[0].lots) : "") + " lot" + eachTxt;
+  }
   const cells = [
-    { k: "LOTTERY", v: "$" + lotPer.toFixed(0) + "/$1", s: "#" + lot.ticket + "  0.05 lot" },
-    { k: "LEFTOVER", v: "$" + leftPer.toFixed(0) + "/$1", s: "#" + left.ticket + "  0.03 lot" },
-    { k: "LEFT RISK", v: "$0", s: "BE  " + fmtPx(left.sl) },
+    { k: "LOTTERY", v: lotPer != null ? ("$" + lotPer.toFixed(0) + "/$1") : "—", s: lot ? ("#" + lot.ticket + "  " + (Number.isFinite(lot.lots) ? lot.lots : "—") + " lot") : "flat" },
+    { k: "ADD", v: addPer != null ? ("$" + addPer.toFixed(0) + "/$1") : "—", s: addSub },
+    { k: "LEFT RISK", v: adds.length ? fmtMoney(addStop) : "$0", s: adds.length ? ("SL  " + fmtPx(addSl)) : "flat" },
     { k: "LOCKED FLOOR", v: fmtMoney(floor), s: "lottery SL 4050" },
     { k: "FOMC MINUTES", v: fmtCountdown(fomcWhen()), s: "Wed 19 Aug 2:00 PM ET" },
   ];
@@ -427,7 +535,7 @@ function fillKpis(lot, left) {
   }).join("");
 }
 
-function fillMatrix(lot, left, bid, fvg, sup) {
+function fillMatrix(lot, adds, bid, fvg, sup, addSl) {
   const el = $("matGrid");
   if (!el) return;
   const cols = [
@@ -435,7 +543,7 @@ function fillMatrix(lot, left, bid, fvg, sup) {
     { k: "OPEN", px: LVL.lotOpen, hide: true },
     { k: "LATE", px: LVL.lateMid, hide: true },
     { k: "D1", px: LVL.d1Mid, hide: false },
-    { k: "BE", px: LVL.leftOpen, hide: false },
+    { k: Number.isFinite(addSl) ? String(Math.round(addSl)) : "STOP", px: addSl, hide: false },
     { k: "BID", px: bid, hide: false },
     { k: "FVG", px: fvg.mid, hide: false },
     { k: "SUP", px: sup.mid, hide: false },
@@ -444,30 +552,38 @@ function fillMatrix(lot, left, bid, fvg, sup) {
     const cls = !Number.isFinite(n) ? "z" : (n > 0.005 ? "up" : (n < -0.005 ? "dn" : "z"));
     return "<div class=\"mcell " + cls + (hide ? " hide-sm" : "") + "\">" + esc(fmtMoney(n)) + "</div>";
   }
+  function row(label, pos) {
+    let html = "<div class=\"mrow\"><div class=\"mcell\">" + esc(label) + "</div>";
+    cols.forEach(function (c) {
+      html += cell(pos ? buyPl(pos.lots, c.px, pos.open) : null, c.hide);
+    });
+    html += "</div>";
+    return html;
+  }
   let html = "<div class=\"mrow head\"><div class=\"mcell\"></div>";
   cols.forEach(function (c) {
     html += "<div class=\"mcell" + (c.hide ? " hide-sm" : "") + "\">" + esc(c.k) + "</div>";
   });
   html += "</div>";
-  html += "<div class=\"mrow\"><div class=\"mcell\">LOT</div>";
-  cols.forEach(function (c) { html += cell(buyPl(lot.lots, c.px, lot.open), c.hide); });
-  html += "</div>";
-  html += "<div class=\"mrow\"><div class=\"mcell\">LEFT</div>";
-  cols.forEach(function (c) { html += cell(buyPl(left.lots, c.px, left.open), c.hide); });
-  html += "</div>";
+  if (lot) html += row("LOT", lot);
+  adds.forEach(function (a) {
+    const short = "#" + String(a.ticket).slice(-3);
+    html += row(short, a);
+  });
   el.innerHTML = html;
 }
 
-function drawFlow(lot, left, bid, fvg) {
+function drawFlow(lot, adds, bid, fvg, addSl) {
   const el = $("flowSvg");
   if (!el) return;
   const lotNow = nowProfit(lot, bid);
-  const lotFvg = buyPl(lot.lots, fvg.mid, lot.open);
-  const leftFvg = buyPl(left.lots, fvg.mid, left.open);
-  const bothFvg = (lotFvg || 0) + (leftFvg || 0);
-  const lotD1 = buyPl(lot.lots, LVL.d1Mid, lot.open);
+  const lotFvg = lot ? buyPl(lot.lots, fvg.mid, lot.open) : null;
+  const addFvg = addPlAt(adds, fvg.mid);
+  const bothFvg = (lotFvg == null && addFvg == null) ? null : ((lotFvg || 0) + (addFvg || 0));
+  const lotD1 = lot ? buyPl(lot.lots, LVL.d1Mid, lot.open) : null;
+  const addStop = Number.isFinite(addSl) ? addPlAt(adds, addSl) : null;
   const branches = [
-    { k: "leftover dies @ BE", s: "lottery keeps running", v: lotNow },
+    { k: adds.length ? ("adds stop @ " + fmtPx(addSl)) : "adds flat", s: "lottery keeps running", v: addStop },
     { k: "both hold to FVG", s: fmtPx(fvg.mid), v: bothFvg },
     { k: "lottery to D1 50%", s: "4264 unused", v: lotD1 },
   ];
@@ -509,17 +625,19 @@ function fillTicker() {
 
 function refresh() {
   const bid = liveBid();
-  const lot = resolvePos(102034139);
-  const left = resolvePos(102177113);
+  const tickets = liveTickets();
+  const lot = lotteryOf(tickets);
+  const adds = addsOf(tickets);
+  const addSl = addSlPx(adds);
   const fvg = fvgBand();
   const sup = supplyBand();
   fillHeader(bid);
-  fillBook(lot, left, bid);
-  fillLevels(lot, left, bid, fvg, sup);
-  drawPath(lot, left, bid, fvg, sup);
-  fillKpis(lot, left);
-  fillMatrix(lot, left, bid, fvg, sup);
-  drawFlow(lot, left, bid, fvg);
+  fillBook(tickets, bid);
+  fillLevels(lot, adds, bid, fvg, sup, addSl);
+  drawPath(lot, adds, bid, fvg, sup, addSl);
+  fillKpis(lot, adds, addSl);
+  fillMatrix(lot, adds, bid, fvg, sup, addSl);
+  drawFlow(lot, adds, bid, fvg, addSl);
   fillTicker();
   drawTape();
 }
