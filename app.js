@@ -39,9 +39,16 @@ function esc(s) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
-function buyPl(lots, price, open) {
+function isSell(type) {
+  return String(type || "").toLowerCase() === "sell";
+}
+function posPl(lots, price, open, type) {
   if (!Number.isFinite(lots) || !Number.isFinite(price) || !Number.isFinite(open)) return null;
-  return lots * 100 * (price - open);
+  const delta = isSell(type) ? (open - price) : (price - open);
+  return lots * 100 * delta;
+}
+function buyPl(lots, price, open, type) {
+  return posPl(lots, price, open, type);
 }
 function fmtMoney(n) {
   if (!Number.isFinite(n)) return "—";
@@ -126,10 +133,11 @@ function parseDeskEvents(list) {
 
 function ticketFromLive(p) {
   const isLot = String(p.ticket) === LOTTERY_ID;
+  const side = isSell(p.type) ? "SHORT" : "LONG";
   return {
     present: true,
     ticket: p.ticket,
-    tag: isLot ? "LOTTERY" : "ADD",
+    tag: isLot ? "LOTTERY" : side,
     lots: num(p.lots),
     open: num(p.open),
     sl: num(p.sl),
@@ -141,24 +149,13 @@ function ticketFromLive(p) {
 function liveTickets() {
   const list = book && Array.isArray(book.positions) ? book.positions : null;
   if (!list) {
-    return [{
-      present: false,
-      awaiting: true,
-      ticket: Number(LOTTERY_ID),
-      tag: "LOTTERY",
-      lots: LOTTERY_FB.lots,
-      open: LOTTERY_FB.open,
-      sl: LOTTERY_FB.sl,
-      profit: null,
-    }];
+    return [];
   }
   const out = [];
   for (let i = 0; i < list.length; i += 1) {
     const p = list[i];
     if (!p) continue;
-    const isLot = String(p.ticket) === LOTTERY_ID;
-    const isBuy = !p.type || String(p.type).toLowerCase() === "buy";
-    if (isLot || isBuy) out.push(ticketFromLive(p));
+    out.push(ticketFromLive(p));
   }
   return out;
 }
@@ -170,7 +167,7 @@ function lotteryOf(tickets) {
   return null;
 }
 function addsOf(tickets) {
-  return tickets.filter(function (t) { return t.tag === "ADD"; });
+  return tickets.filter(function (t) { return t.tag !== "LOTTERY"; });
 }
 
 function addSlPx(adds) {
@@ -186,7 +183,7 @@ function addPlAt(adds, px) {
   let sum = 0;
   let any = false;
   for (let i = 0; i < adds.length; i += 1) {
-    const n = buyPl(adds[i].lots, px, adds[i].open);
+    const n = posPl(adds[i].lots, px, adds[i].open, adds[i].type);
     if (n != null) {
       sum += n;
       any = true;
@@ -214,7 +211,7 @@ function supplyBand() {
 function nowProfit(pos, bid) {
   if (!pos) return null;
   if (pos.present && pos.profit != null) return pos.profit;
-  if (pos.present || pos.awaiting) return buyPl(pos.lots, bid, pos.open);
+  if (pos.present || pos.awaiting) return posPl(pos.lots, bid, pos.open, pos.type);
   return null;
 }
 
@@ -479,10 +476,11 @@ function fillBook(tickets, bid) {
   for (let i = 0; i < abs.length; i += 1) tot += abs[i];
   bars.innerHTML = tickets.map(function (t, i) {
     const pct = tot > 0 ? (abs[i] / tot) * 100 : 0;
+    const side = t.tag === "SHORT" ? "SHORT" : (t.tag === "LOTTERY" ? "LOTTERY" : "LONG");
     const lab = t.tag === "LOTTERY"
       ? "LOTTERY"
-      : ("ADD #" + t.ticket + "  " + (Number.isFinite(t.lots) ? String(t.lots) : "—") + "  SL " + fmtPx(t.sl));
-    const cls = t.tag === "LOTTERY" ? "lot" : "add";
+      : (side + " #" + t.ticket + "  " + (Number.isFinite(t.lots) ? String(t.lots) : "—") + "  SL " + fmtPx(t.sl));
+    const cls = t.tag === "LOTTERY" ? "lot" : (t.tag === "SHORT" ? "short" : "add");
     return "<div class=\"bar-row\"><div class=\"bar-lab\"><span>" + esc(lab) + "</span><b>" + esc(fmtMoney(profits[i]) + "  " + pct.toFixed(0) + "%") + "</b></div><div class=\"track\"><i class=\"" + cls + "\" style=\"width:" + pct.toFixed(1) + "%\"></i></div></div>";
   }).join("");
 }
@@ -555,7 +553,7 @@ function fillMatrix(lot, adds, bid, fvg, sup, addSl) {
   function row(label, pos) {
     let html = "<div class=\"mrow\"><div class=\"mcell\">" + esc(label) + "</div>";
     cols.forEach(function (c) {
-      html += cell(pos ? buyPl(pos.lots, c.px, pos.open) : null, c.hide);
+      html += cell(pos ? posPl(pos.lots, c.px, pos.open, pos.type) : null, c.hide);
     });
     html += "</div>";
     return html;
