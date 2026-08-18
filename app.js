@@ -578,12 +578,14 @@ async function pollGold() {
 }
 
 async function pollAll() {
-  await Promise.all([pollBook(), pollEvents(), pollGold()]);
-  refresh();
+  try {
+    await Promise.all([pollBook(), pollEvents(), pollGold()]);
+    refresh();
+  } catch (err) { /* keep HUD painted */ }
 }
 
-refresh();
+try { refresh(); } catch (err) { /* keep HUD painted */ }
 pollAll();
 setInterval(pollAll, 2000);
-setInterval(refreshNewsClock, 1000);
-window.addEventListener("resize", function () { refresh(); });
+setInterval(function () { try { refreshNewsClock(); } catch (err) { /* keep HUD painted */ } }, 1000);
+window.addEventListener("resize", function () { try { refresh(); } catch (err) { /* keep HUD painted */ } });
