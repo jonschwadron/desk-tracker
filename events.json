@@ -1471,5 +1471,28 @@
       "fvg_id": "fvg-M30-2026-08-17-4389-4404",
       "fill_state": "dead"
     }
+  },
+  {
+    "ts": "2026-08-18T09:45:17-04:00",
+    "agent": "FVG",
+    "action": "hunt",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "spot": 4403.68,
+      "new_unused_bullish_fvg": false,
+      "new_bullish_ifvg": false,
+      "fill_state_change": false,
+      "remnant": {
+        "id": "fvg-M30-2026-08-17-4375-4388",
+        "fill_state": "partial",
+        "partial_low": 4376.195,
+        "gap_low": 4375.425,
+        "gap_high": 4387.61,
+        "dead": false,
+        "note": "Deeper wick into already-partial remnant. No close through. Not a card."
+      },
+      "d1_control": "supply"
+    }
   }
 ]
