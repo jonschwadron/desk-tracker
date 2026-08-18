@@ -1,918 +1,787 @@
-/* XAUUSD desk board — static-hostable. Polls events.json, book.json, gold-api XAU. */
-(function () {
-  "use strict";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-  const TZ = "America/New_York";
-  const POLL_MS = 1000;
-  const SPOT_MS = 20000;
-  const SPOT_URL = "https://api.gold-api.com/price/XAU";
-  const ET = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit",
+const LIVE_BASE = "https://geek-talk-incidents-organizer.trycloudflare.com";
+const GOLD_URL = "https://api.gold-api.com/price/XAU";
+const TICKET_META = {
+  102034139: { tag: "LOTTERY", sub: "SL 4050" },
+  102177113: { tag: "LEFTOVER", sub: "BREAK-EVEN" },
+};
+
+const INK = 0x050505;
+const GOLD = 0xc9a227;
+const GOLD_HI = 0xe8c37a;
+const GOLD_DIM = 0x6a5420;
+const RIBBON_N = 220;
+const DUST_N = 2800;
+const HOME_POS = new THREE.Vector3(0, 9.6, 22.5);
+const HOME_TARGET = new THREE.Vector3(0, 3.4, 0);
+
+const canvas = document.getElementById("stage");
+const clock = new THREE.Clock();
+const pointer = new THREE.Vector2(-2, -2);
+const raycaster = new THREE.Raycaster();
+
+let scene, camera, renderer, controls;
+let dust, dustBase, dustShiver = 0;
+let ribbon, ribbonPos, ribbonCol;
+let titleMesh, holoGroup;
+let monolithGroup, eventGroup;
+let pickables = [];
+let hover = null;
+let book = null;
+let events = [];
+let prices = [];
+let lastBid = null;
+let liveOk = false;
+let goldPx = null;
+let userDriving = false;
+let lastInput = 0;
+let focusGoal = null;
+let pointerDown = null;
+
+function fmtMoney(n) {
+  if (!Number.isFinite(n)) return "—";
+  const sign = n < 0 ? "-" : "";
+  return sign + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtPx(n) {
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtAsof(s) {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  return d.toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
     hour12: false,
+  }) + " ET";
+}
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+
+async function getJSON(url, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms || 4500);
+  try {
+    const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+    if (!r.ok) throw new Error(String(r.status));
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  return { c, ctx };
+}
+
+function paintPanel(ctx, w, h, eyebrow, title, sub, foot) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "rgba(8, 7, 4, 0.88)";
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "rgba(201, 162, 39, 0.55)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(10, 10, w - 20, h - 20);
+  ctx.strokeStyle = "rgba(232, 195, 122, 0.18)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(16, 16, w - 32, h - 32);
+  ctx.fillStyle = "#8a7020";
+  ctx.font = "500 22px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText(eyebrow || "", 36, 52);
+  ctx.fillStyle = "#e8c37a";
+  ctx.font = "600 54px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText(title || "—", 36, 118);
+  ctx.fillStyle = "#c9a227";
+  ctx.font = "500 24px ui-monospace, SFMono-Regular, Menlo, monospace";
+  if (sub) ctx.fillText(sub, 36, 160);
+  ctx.fillStyle = "#6a5420";
+  ctx.font = "500 18px ui-monospace, SFMono-Regular, Menlo, monospace";
+  if (foot) ctx.fillText(foot, 36, h - 36);
+}
+
+function canvasTexture(canvas) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function makeHolo(w, h, cw, ch) {
+  const { c, ctx } = makeCanvas(cw, ch);
+  paintPanel(ctx, cw, ch, "", "—", "", "");
+  const tex = canvasTexture(c);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 0.92,
+    side: THREE.DoubleSide,
+    depthWrite: false,
   });
-  const ET_SHORT = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ, month: "short", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  mesh.userData = { ctx, canvas: c, tex, kind: "holo" };
+  return mesh;
+}
+
+function setHolo(mesh, eyebrow, title, sub, foot) {
+  const { ctx, canvas, tex } = mesh.userData;
+  paintPanel(ctx, canvas.width, canvas.height, eyebrow, title, sub, foot);
+  tex.needsUpdate = true;
+}
+
+function initScene() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(INK);
+  scene.fog = new THREE.FogExp2(INK, 0.016);
+
+  camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
+  camera.position.copy(HOME_POS);
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.minDistance = 6;
+  controls.maxDistance = 48;
+  controls.maxPolarAngle = Math.PI * 0.49;
+  controls.target.copy(HOME_TARGET);
+  controls.addEventListener("start", () => {
+    userDriving = true;
+    lastInput = performance.now();
+    focusGoal = null;
   });
-  const ET_FULL = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ, weekday: "short", month: "short", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  controls.addEventListener("end", () => {
+    lastInput = performance.now();
   });
 
-  const state = {
-    events: [],
-    book: null,
-    seen: new Set(),
-    fresh: new Set(),
-    chart: null,
-    series: null,
-    lines: [],
-    markersOn: false,
-    spot: null,
-    spotAt: null,
-    spotLive: false,
-    spotSource: null,
-    spotLine: null,
+  scene.add(new THREE.AmbientLight(0x2a2414, 0.7));
+  const key = new THREE.DirectionalLight(0xf0d080, 1.15);
+  key.position.set(8, 18, 8);
+  scene.add(key);
+  const fill = new THREE.PointLight(0xffe9a0, 2.1, 50, 2);
+  fill.position.set(0, 10, 3);
+  scene.add(fill);
+  const rim = new THREE.PointLight(0x8a7020, 1.2, 40, 2);
+  rim.position.set(-10, 6, -8);
+  scene.add(rim);
+
+  const grid = new THREE.GridHelper(90, 90, GOLD_DIM, 0x1c1608);
+  grid.position.y = 0.001;
+  const gmat = grid.material;
+  if (Array.isArray(gmat)) {
+    gmat.forEach((m) => { m.transparent = true; m.opacity = 0.32; m.depthWrite = false; });
+  } else {
+    gmat.transparent = true;
+    gmat.opacity = 0.32;
+    gmat.depthWrite = false;
+  }
+  scene.add(grid);
+
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(22, 64),
+    new THREE.MeshStandardMaterial({
+      color: 0x0a0804,
+      metalness: 0.7,
+      roughness: 0.55,
+      transparent: true,
+      opacity: 0.55,
+    }),
+  );
+  disc.rotation.x = -Math.PI / 2;
+  scene.add(disc);
+
+  resize();
+}
+
+function initDust() {
+  const geo = new THREE.BufferGeometry();
+  dustBase = new Float32Array(DUST_N * 3);
+  const col = new Float32Array(DUST_N * 3);
+  const sizes = new Float32Array(DUST_N);
+  for (let i = 0; i < DUST_N; i += 1) {
+    const i3 = i * 3;
+    const r = 6 + Math.random() * 26;
+    const a = Math.random() * Math.PI * 2;
+    dustBase[i3] = Math.cos(a) * r;
+    dustBase[i3 + 1] = 0.3 + Math.random() * 14;
+    dustBase[i3 + 2] = Math.sin(a) * r * 0.72;
+    const g = 0.62 + Math.random() * 0.38;
+    col[i3] = g;
+    col[i3 + 1] = 0.48 + Math.random() * 0.28;
+    col[i3 + 2] = 0.12 + Math.random() * 0.12;
+    sizes[i] = 0.035 + Math.random() * 0.07;
+  }
+  geo.setAttribute("position", new THREE.BufferAttribute(dustBase.slice(), 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 0.055,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
+  });
+  dust = new THREE.Points(geo, mat);
+  scene.add(dust);
+}
+
+function initRibbon() {
+  const geo = new THREE.BufferGeometry();
+  ribbonPos = new Float32Array(RIBBON_N * 2 * 3);
+  ribbonCol = new Float32Array(RIBBON_N * 2 * 3);
+  const idx = [];
+  for (let i = 0; i < RIBBON_N; i += 1) {
+    const x = -16 + (i / (RIBBON_N - 1)) * 32;
+    for (let row = 0; row < 2; row += 1) {
+      const o = (i * 2 + row) * 3;
+      ribbonPos[o] = x;
+      ribbonPos[o + 1] = 4.2;
+      ribbonPos[o + 2] = -6 + (row ? 0.22 : -0.22);
+      const k = i / (RIBBON_N - 1);
+      ribbonCol[o] = 0.55 + k * 0.45;
+      ribbonCol[o + 1] = 0.38 + k * 0.28;
+      ribbonCol[o + 2] = 0.08 + k * 0.08;
+    }
+    if (i < RIBBON_N - 1) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  geo.setAttribute("position", new THREE.BufferAttribute(ribbonPos, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(ribbonCol, 3));
+  geo.setIndex(idx);
+  const mat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.88,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  ribbon = new THREE.Mesh(geo, mat);
+  scene.add(ribbon);
+}
+
+function ingestPrice(px) {
+  if (!Number.isFinite(px) || px <= 0) return;
+  const prev = prices.length ? prices[prices.length - 1] : null;
+  prices.push(px);
+  if (prices.length > RIBBON_N) prices.shift();
+  if (prev != null && Math.abs(px - prev) > 0.01) {
+    dustShiver = Math.min(1.5, dustShiver + 0.62);
+  }
+}
+
+function updateRibbon() {
+  if (!prices.length) return;
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = 0; i < prices.length; i += 1) {
+    min = Math.min(min, prices[i]);
+    max = Math.max(max, prices[i]);
+  }
+  const span = Math.max(1.2, max - min);
+  const n = prices.length;
+  for (let i = 0; i < RIBBON_N; i += 1) {
+    const src = i < RIBBON_N - n ? prices[0] : prices[i - (RIBBON_N - n)];
+    const y = 4.15 + ((src - min) / span) * 3.4;
+    const x = -16 + (i / (RIBBON_N - 1)) * 32;
+    const wave = Math.sin(i * 0.085 + performance.now() * 0.0007) * 0.12;
+    for (let row = 0; row < 2; row += 1) {
+      const o = (i * 2 + row) * 3;
+      ribbonPos[o] = x;
+      ribbonPos[o + 1] = y;
+      ribbonPos[o + 2] = -6 + wave + (row ? 0.22 : -0.22);
+    }
+  }
+  ribbon.geometry.attributes.position.needsUpdate = true;
+}
+
+function initHolos() {
+  const { c, ctx } = makeCanvas(1024, 220);
+  ctx.fillStyle = "rgba(8,7,4,0.2)";
+  ctx.fillRect(0, 0, 1024, 220);
+  ctx.fillStyle = "#e8c37a";
+  ctx.font = "600 72px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText("XAUUSD DESK", 40, 100);
+  ctx.fillStyle = "#8a7020";
+  ctx.font = "500 28px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText("5217539  ·  COINEXX DEMO  ·  GOLD ONLY", 40, 160);
+  const tex = canvasTexture(c);
+  titleMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(16, 3.4),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.95, depthWrite: false }),
+  );
+  titleMesh.position.set(0, 12.6, -11);
+  scene.add(titleMesh);
+
+  holoGroup = new THREE.Group();
+  const keys = ["equity", "float", "bid", "asof"];
+  keys.forEach((key, i) => {
+    const mesh = makeHolo(5.4, 2.35, 512, 256);
+    mesh.position.set(-9.2 + i * 6.15, 9.7, -10.2);
+    mesh.userData.key = key;
+    holoGroup.add(mesh);
+  });
+  scene.add(holoGroup);
+}
+
+function refreshHolos() {
+  if (!holoGroup) return;
+  const eq = book && Number.isFinite(book.equity) ? book.equity : null;
+  const fl = book && Number.isFinite(book.floating_pl) ? book.floating_pl : null;
+  const bid = book && Number.isFinite(book.bid) ? book.bid : goldPx;
+  const asof = book && book.asof ? book.asof : null;
+  const src = liveOk ? "LIVE FEED" : "LOCAL / GOLD-API";
+  holoGroup.children.forEach((mesh) => {
+    const k = mesh.userData.key;
+    if (k === "equity") setHolo(mesh, "EQUITY", fmtMoney(eq), book ? "bal " + fmtMoney(book.balance) : "awaiting book", src);
+    if (k === "float") setHolo(mesh, "FLOAT", fmtMoney(fl), book ? book.symbol || "XAUUSD" : "XAUUSD", src);
+    if (k === "bid") setHolo(mesh, "BID", fmtPx(bid), book && Number.isFinite(book.ask) ? "ask " + fmtPx(book.ask) : "gold-api", src);
+    if (k === "asof") setHolo(mesh, "LIVE ASOF", asof ? fmtAsof(asof).split(" ET")[0] : "—", liveOk ? "Coinexx tape" : "feed idle", src);
+  });
+}
+
+function ticketMeta(ticket) {
+  return TICKET_META[ticket] || TICKET_META[String(ticket)] || { tag: "TICKET", sub: String(ticket) };
+}
+
+function profitHeight(profit) {
+  const mag = Math.abs(Number(profit) || 0);
+  return 2.3 + Math.sqrt(mag) * 0.22;
+}
+
+function makeMonolith(pos) {
+  const group = new THREE.Group();
+  group.userData.kind = "ticket";
+  group.userData.ticket = pos.ticket;
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x14110a,
+    metalness: 0.86,
+    roughness: 0.22,
+    emissive: GOLD,
+    emissiveIntensity: 0.28,
+  });
+  const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1, 1.7), mat);
+  pillar.userData.kind = "ticket";
+  pillar.userData.ticket = pos.ticket;
+  group.add(pillar);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1.35, 0.035, 8, 48),
+    new THREE.MeshStandardMaterial({ color: GOLD, metalness: 0.9, roughness: 0.2, emissive: GOLD, emissiveIntensity: 0.35 }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.04;
+  group.add(ring);
+  const plaque = makeHolo(2.35, 2.9, 384, 480);
+  plaque.position.set(0, 2.2, 0.95);
+  group.add(plaque);
+  group.userData.pillar = pillar;
+  group.userData.plaque = plaque;
+  group.userData.mat = mat;
+  plaque.userData.kind = "ticket";
+  plaque.userData.ticket = pos.ticket;
+  pickables.push(pillar, plaque);
+  return group;
+}
+
+function paintTicket(group, pos) {
+  const meta = ticketMeta(pos.ticket);
+  const profit = Number(pos.profit) || 0;
+  const h = profitHeight(profit);
+  group.userData.targetH = h;
+  const pillar = group.userData.pillar;
+  if (pillar.scale.y < 0.2) pillar.scale.y = h;
+  const glow = 0.22 + clamp(Math.abs(profit) / 1800, 0, 1.15);
+  group.userData.mat.emissive.setHex(profit >= 0 ? GOLD : 0x6a2020);
+  group.userData.baseEmissive = glow;
+  if (hover !== group && hover !== pillar) group.userData.mat.emissiveIntensity = glow;
+  const plaque = group.userData.plaque;
+  const { ctx, canvas, tex } = plaque.userData;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(8,7,4,0.9)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "rgba(201,162,39,0.6)";
+  ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+  ctx.fillStyle = "#8a7020";
+  ctx.font = "600 26px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText(meta.tag, 28, 56);
+  ctx.fillStyle = "#e8c37a";
+  ctx.font = "600 34px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText("#" + pos.ticket, 28, 104);
+  ctx.fillStyle = "#c9a227";
+  ctx.font = "500 22px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText((pos.type || "buy").toUpperCase() + "  " + (pos.lots || "—") + " lot", 28, 150);
+  ctx.fillText("open " + fmtPx(pos.open), 28, 186);
+  ctx.fillText(meta.sub + (pos.sl ? "  sl " + fmtPx(pos.sl) : ""), 28, 222);
+  ctx.fillStyle = profit >= 0 ? "#e8c37a" : "#d46a6a";
+  ctx.font = "600 40px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText(fmtMoney(profit), 28, 290);
+  ctx.fillStyle = "#6a5420";
+  ctx.font = "500 18px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText("click to focus", 28, canvas.height - 32);
+  tex.needsUpdate = true;
+}
+
+function syncMonoliths(positions) {
+  if (!monolithGroup) {
+    monolithGroup = new THREE.Group();
+    scene.add(monolithGroup);
+  }
+  const want = new Map((positions || []).map((p) => [String(p.ticket), p]));
+  const have = new Map();
+  monolithGroup.children.forEach((g) => have.set(String(g.userData.ticket), g));
+  have.forEach((g, k) => {
+    if (!want.has(k)) {
+      pickables = pickables.filter((o) => o.parent !== g);
+      monolithGroup.remove(g);
+    }
+  });
+  const keys = Array.from(want.keys());
+  keys.forEach((k, i) => {
+    let g = have.get(k);
+    if (!g) {
+      g = makeMonolith(want.get(k));
+      monolithGroup.add(g);
+    }
+    const x = keys.length === 1 ? 0 : -5.4 + i * (10.8 / Math.max(1, keys.length - 1));
+    g.position.x = x;
+    g.position.z = 0.2;
+    paintTicket(g, want.get(k));
+  });
+}
+
+function eventLine(ev) {
+  const p = ev.payload || {};
+  return p.note || p.refuse || p.status || p.side || ev.action || "";
+}
+
+function paintEvent(mesh, ev) {
+  const { ctx, canvas, tex } = mesh.userData;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(10,8,4,0.78)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "rgba(201,162,39,0.4)";
+  ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+  ctx.fillStyle = "#8a7020";
+  ctx.font = "600 22px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText(((ev.agent || "DESK") + "  ·  " + (ev.action || "")).toUpperCase(), 24, 42);
+  ctx.fillStyle = "#e8c37a";
+  ctx.font = "500 20px ui-monospace, SFMono-Regular, Menlo, monospace";
+  const mid = [ev.tf, ev.symbol, (ev.payload && ev.payload.status) || ""].filter(Boolean).join("  ·  ");
+  ctx.fillText(mid, 24, 74);
+  ctx.fillStyle = "#c9a227";
+  ctx.font = "500 18px ui-monospace, SFMono-Regular, Menlo, monospace";
+  const note = String(eventLine(ev)).slice(0, 64);
+  ctx.fillText(note, 24, 106);
+  tex.needsUpdate = true;
+}
+
+function syncEvents(list) {
+  if (!eventGroup) {
+    eventGroup = new THREE.Group();
+    scene.add(eventGroup);
+  }
+  const last = (Array.isArray(list) ? list : []).slice(-8).reverse();
+  while (eventGroup.children.length > last.length) {
+    const gone = eventGroup.children[eventGroup.children.length - 1];
+    pickables = pickables.filter((o) => o !== gone);
+    eventGroup.remove(gone);
+  }
+  last.forEach((ev, i) => {
+    let mesh = eventGroup.children[i];
+    if (!mesh) {
+      mesh = makeHolo(6.4, 1.45, 640, 160);
+      mesh.userData.kind = "event";
+      eventGroup.add(mesh);
+      pickables.push(mesh);
+    }
+    const t = (i / Math.max(1, last.length - 1)) - 0.5;
+    mesh.userData.baseY = 1.55 + (i % 2) * 0.18;
+    mesh.position.set(t * 18, mesh.userData.baseY, 7.2 - Math.abs(t) * 1.1);
+    mesh.rotation.y = -t * 0.28;
+    mesh.userData.event = ev;
+    paintEvent(mesh, ev);
+  });
+}
+
+function worldCenter(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  return box.getCenter(new THREE.Vector3());
+}
+
+function focusObject(obj, dist) {
+  if (!obj) return;
+  userDriving = true;
+  lastInput = performance.now();
+  const center = worldCenter(obj);
+  const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3()).length();
+  const d = Math.max(dist || 9, size * 1.7);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  if (dir.lengthSq() < 0.01) dir.set(0, 0.35, 1).normalize();
+  focusGoal = {
+    pos: center.clone().add(dir.multiplyScalar(d)),
+    target: center.clone(),
   };
+}
 
-  const $ = (id) => document.getElementById(id);
+function resetCamera() {
+  userDriving = true;
+  lastInput = performance.now();
+  focusGoal = { pos: HOME_POS.clone(), target: HOME_TARGET.clone() };
+}
 
-  function normalizeBook(b) {
-    if (!b || typeof b !== "object") return b;
-    const raw = b.positions || b.open || [];
-    const open = raw.map(function (p) {
-      const ticket = p.ticket;
-      const entry = p.open != null ? p.open : p.entry;
-      const sl = p.sl;
-      return {
-        ticket: ticket,
-        side: p.type || p.side || "buy",
-        lots: p.lots,
-        entry: entry,
-        sl: sl,
-        tp: p.tp,
-        profit: p.profit,
-        comment: p.comment,
-        openTime: p.openTime,
-        agent: Number(p.magic) === 260814 ? "MICRO" : "MACRO",
-        state: String(ticket) === "102034139" ? "lottery_ticket" : (sl != null && entry != null && Number(sl) === Number(entry) ? "be" : "open"),
-        do_not_touch: String(ticket) === "102034139",
-      };
-    });
-    return Object.assign({}, b, {
-      open: open,
-      positions: raw,
-      account: b.account || b.login || "5217539",
-      free_margin: b.free_margin != null ? b.free_margin : b.free,
-      live: b.live === true || !!b.asof,
-    });
-  }
+function ticketByIndex(idx) {
+  if (!monolithGroup || !monolithGroup.children.length) return null;
+  const ordered = monolithGroup.children.slice().sort((a, b) => {
+    const ta = Number(a.userData.ticket);
+    const tb = Number(b.userData.ticket);
+    if (ta === 102034139) return -1;
+    if (tb === 102034139) return 1;
+    return ta - tb;
+  });
+  return ordered[idx] || null;
+}
 
+function pickFromEvent(ev) {
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(pickables, true);
+  return hits.length ? hits[0].object : null;
+}
 
-  function parseTs(ts) {
-    if (!ts) return null;
-    const d = new Date(ts);
-    return isNaN(d) ? null : d;
-  }
-  function fmtET(ts) {
-    const d = parseTs(ts);
-    return d ? ET_SHORT.format(d) + " ET" : "—";
-  }
-  function fmtClock(d) {
-    return ET.format(d) + " ET";
-  }
-  function num(n, d) {
-    if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
-    return Number(n).toLocaleString("en-US", { minimumFractionDigits: d ?? 2, maximumFractionDigits: d ?? 2 });
-  }
-  function px(n) {
-    if (n == null || n === "") return "—";
-    return Number(n).toFixed(Number(n) >= 100 ? 2 : 3);
-  }
-  function clsPnl(n) {
-    if (n == null) return "";
-    return Number(n) >= 0 ? "up" : "dn";
-  }
-  function evKey(e) {
-    const p = e.payload || {};
-    return [e.ts, e.agent, e.action, e.tf, p.ticket || p.status || p.card || p.label || p.reason || ""].join("|");
-  }
-  function isSample(e) {
-    const p = e.payload || {};
-    return p.sample === true || e.sample === true;
-  }
-  function payload(e) { return (e && e.payload) || {}; }
+function rootPickable(obj) {
+  let o = obj;
+  while (o && o.parent && !o.userData.kind) o = o.parent;
+  return o;
+}
 
-  function oneLine(e) {
-    const p = payload(e);
-    const a = (e.action || "").toLowerCase();
-    if (p.reason && (a === "card" || a === "watch" || a === "refuse")) {
-      const card = (p.card || p.status || "").toString().toUpperCase();
-      const refuse = p.refuse ? " · " + p.refuse : "";
-      return (card ? card + " — " : "") + p.reason + refuse;
-    }
-    if (a === "scan") {
-      const c = p.c != null ? "C " + px(p.c) : "";
-      const bar = p.last_d1_bar || "";
-      return [bar, c, p.status, p.spot_sunday_mt4 || p.spot, p.note].filter(Boolean).join(" · ");
-    }
-    if (a === "box") {
-      const box = p.box || p.htf_box || p;
-      const d = box.distal, pr = box.proximal, m = box.mid_50 || box.mid;
-      const lab = p.label || p.side || "box";
-      return [lab, p.freshness, d != null ? px(d) + "–" + px(pr) : "", m != null ? "mid " + px(m) : "", p.refuse || p.note]
-        .filter(Boolean).join(" · ");
-    }
-    if (a === "runner") {
-      return "ticket " + (p.ticket || "") + " " + (p.type || p.side || "buy") + " " +
-        (p.lots != null ? p.lots : "") + " @ " + px(p.open_price || p.entry) +
-        " SL " + px(p.sl) + " · " + (p.state || "runner");
-    }
-    if (a === "card") {
-      return [(p.status || p.card || "").toString().toUpperCase(), p.skip_reason || p.reason, p.refuse, p.spot]
-        .filter(Boolean).join(" · ");
-    }
-    if (p.note) return p.note;
-    if (p.reason) return p.reason;
-    return a || "event";
-  }
+function hoverRoot(obj) {
+  if (!obj) return null;
+  if (obj.userData.kind === "ticket" && obj.parent && obj.parent.userData.kind === "ticket") return obj.parent;
+  return rootPickable(obj);
+}
 
-  /* ---------- clock ---------- */
-  function tickClock() {
-    $("clock-et").textContent = fmtClock(new Date());
+function setHover(obj) {
+  const next = hoverRoot(obj);
+  if (hover === next) return;
+  if (hover && hover.userData && hover.userData.mat) {
+    hover.userData.mat.emissiveIntensity = hover.userData.baseEmissive || 0.28;
+  } else if (hover && hover.material && hover.userData.kind === "event") {
+    hover.material.opacity = 0.92;
   }
+  hover = next;
+  canvas.style.cursor = next ? "pointer" : "grab";
+  if (!next) return;
+  if (next.userData.mat) {
+    next.userData.mat.emissiveIntensity = (next.userData.baseEmissive || 0.28) + 0.85;
+  } else if (next.userData.kind === "event" && next.material) {
+    next.material.opacity = 1;
+  }
+}
 
-  /* ---------- P/L strip from live book ---------- */
-  function renderPL() {
-    const b = state.book || {};
-    const live = !!b.live;
-    const spotV = state.spot != null ? px(state.spot) : "—";
-    const spotLive = !!state.spotLive;
-    const spotK = state.spot == null ? "LIVE SPOT" : (spotLive ? "LIVE SPOT" : "STALE SPOT");
-    const spotS = state.spot == null
-      ? "indicative XAU mid · waiting"
-      : (spotLive
-        ? "indicative XAU mid · not Coinexx · not OANDA"
-        : "STALE · book bid · gold-api failed");
-    const asof = b.asof ? fmtET(b.asof) : "—";
-    const cells = [
-      { k: spotK, v: spotV, s: spotS, c: spotLive ? "gold" : "warn" },
-      { k: "BID", v: px(b.bid), s: "ask " + px(b.ask), c: "gold" },
-      { k: "BALANCE", v: num(b.balance), s: "size new fills off this", c: "gold" },
-      { k: "EQUITY", v: num(b.equity), s: live ? "live Coinexx" : "last snapshot", c: live ? "gold" : "warn" },
-      { k: "FLOATING", v: (Number(b.floating_pl) >= 0 ? "+" : "") + num(b.floating_pl), s: "open mark", c: clsPnl(b.floating_pl) },
-      { k: "MARGIN", v: num(b.margin), s: "free " + num(b.free_margin), c: "" },
-      { k: "ACCOUNT", v: b.account || "5217539", s: (b.server || "Coinexx-Demo"), c: "" },
-      { k: live ? "LIVE BOOK" : "BOOK", v: asof, s: live ? "MT4 tick · no git" : "stale Pages snapshot", c: live ? "up" : "warn" },
-    ];
-    $("pl-strip").innerHTML = cells.map((c) =>
-      `<div class="pl-cell"><div class="k">${c.k}</div><div class="v ${c.c}">${c.v}</div><div class="s">${c.s}</div></div>`
-    ).join("");
-  }
+function onPointerMove(ev) {
+  lastInput = performance.now();
+  setHover(pickFromEvent(ev));
+}
 
-  /* ---------- agents ---------- */
-  function lastOf(agent) {
-    const evs = state.events.filter((e) => (e.agent || "").toUpperCase() === agent);
-    return evs.length ? evs[evs.length - 1] : null;
-  }
-  function renderAgents() {
-    const now = Date.now();
-    const seats = ["MACRO", "MICRO", "FVG"].map((name) => {
-      const ev = lastOf(name);
-      const p = payload(ev);
-      let status = "idle";
-      let statusLabel = "IDLE";
-      let last = "no print yet";
-      let action = "—";
-      if (ev) {
-        last = fmtET(ev.ts);
-        action = (ev.action || "").toUpperCase();
-        const age = now - (parseTs(ev.ts)?.getTime() || 0);
-        if (p.quiet === true) { status = "quiet"; statusLabel = "QUIET"; }
-        else if ((p.card || p.status || "").toString().toLowerCase() === "wait") { status = "wait"; statusLabel = "WAIT"; }
-        else if (age < 15 * 60 * 1000) { status = "live"; statusLabel = "LIVE"; }
-        else { status = "quiet"; statusLabel = "QUIET"; }
-      }
-      if (name === "MICRO" && !ev) {
-        last = "silence is a state";
-        status = "quiet";
-        statusLabel = "QUIET";
-      }
-      if (name === "FVG" && !ev) {
-        last = "no FVG print · profit area empty";
-      }
-      const extra = ev ? oneLine(ev) : (name === "MICRO" ? "no new row ≠ idle bug" : "waiting on desk");
-      return { name, status, statusLabel, last, action, extra };
-    });
-    $("agents").innerHTML = seats.map((s) =>
-      `<div class="seat ${s.name}">
-        <div class="name">${s.name}</div>
-        <div class="meta">${s.action}<br>${s.last}<br>${esc(s.extra)}</div>
-        <div class="badge ${s.status}">${s.statusLabel}</div>
-      </div>`
-    ).join("");
+function onPointerDown(ev) {
+  pointerDown = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+  userDriving = true;
+  lastInput = performance.now();
+}
 
-    const cardEv = [...state.events].reverse().find((e) => (e.action || "").toLowerCase() === "card");
-    const p = payload(cardEv);
-    const st = (p.status || p.card || "WAIT").toString().toUpperCase();
-    const pill = $("card-status");
-    pill.textContent = st;
-    pill.className = "status-pill " + st.toLowerCase();
-    $("card-reason").textContent = p.skip_reason || p.reason || p.refuse || "price above unused M30 · no 50% · do not chase";
-  }
+function onPointerUp(ev) {
+  if (!pointerDown) return;
+  const dx = ev.clientX - pointerDown.x;
+  const dy = ev.clientY - pointerDown.y;
+  const dt = performance.now() - pointerDown.t;
+  pointerDown = null;
+  if (dx * dx + dy * dy > 36 || dt > 500) return;
+  const obj = pickFromEvent(ev);
+  if (!obj) return;
+  const root = hoverRoot(obj) || obj;
+  focusObject(root, root.userData.kind === "event" ? 7 : 10);
+}
 
-  /* ---------- zones + nest ---------- */
-  function collectZones() {
-    const zones = [];
-    const seen = new Set();
-    for (const e of state.events) {
-      const p = payload(e);
-      const boxes = [];
-      if (p.box && (p.box.distal != null || p.box.proximal != null)) {
-        boxes.push({ src: e, box: p.box, kind: "htf", label: p.label, side: p.side, freshness: p.freshness, tf: e.tf, note: p.note || p.refuse });
-      }
-      if (p.htf_box && p.htf_box.distal != null) {
-        boxes.push({ src: e, box: p.htf_box, kind: "htf", label: "HTF box (MACRO map)", side: "demand", freshness: p.htf_box.unused ? "unused" : "used", tf: p.htf_box.tf || e.tf, note: "Micro snipes nest 50%, not this box 50%" });
-      }
-      if (p.ltf_nest && p.ltf_nest.distal != null) {
-        boxes.push({ src: e, box: p.ltf_nest, kind: "nest", label: "LTF nest", side: "nest", freshness: "hunt", tf: p.hunt_tf || e.tf, note: "Nest ≠ HTF box. Snipe nest 50%." });
-      }
-      if ((e.action || "").toLowerCase() === "box") {
-        const b = { distal: p.distal, proximal: p.proximal, mid_50: p.mid_50, mid: p.mid };
-        if (p.tape_box) {
-          boxes.push({ src: e, box: p.tape_box, kind: "htf", label: (p.label || "box") + " · tape", side: p.side, freshness: p.freshness, tf: e.tf, note: p.note });
-        }
-        if (p.his_box) {
-          boxes.push({ src: e, box: p.his_box, kind: "hold", label: (p.label || "box") + " · his approx", side: p.side, freshness: p.freshness, tf: e.tf, note: "approximate — tape is source of truth" });
-        }
-        if (b.distal != null) {
-          boxes.push({ src: e, box: b, kind: p.freshness === "used_hold" ? "hold" : "htf", label: p.label || p.side || "box", side: p.side, freshness: p.freshness, tf: e.tf, note: p.refuse || p.note });
-        }
-      }
-      if (p.side === "supply" || (p.label || "").toLowerCase().includes("supply")) {
-        /* already pushed */
-      }
-      for (const z of boxes) {
-        const key = [z.tf, z.box.distal, z.box.proximal, z.label].join("|");
-        if (seen.has(key)) continue;
-        seen.add(key);
-        zones.push(z);
-      }
-    }
-    /* locked live map if events somehow thin */
-    if (!zones.some((z) => z.box && Number(z.box.proximal) === 4392)) {
-      zones.unshift({
-        kind: "htf", label: "M30 unused demand", side: "demand", freshness: "unused", tf: "M30",
-        box: { distal: 4373, proximal: 4392, mid_50: 4382.5 },
-        note: "spot above proximal → WAIT · do not chase 4407",
-      });
-    }
-    return zones;
-  }
+function onKey(ev) {
+  if (ev.key === "1") focusObject(ticketByIndex(0), 10);
+  if (ev.key === "2") focusObject(ticketByIndex(1), 10);
+  if (ev.key === "0") resetCamera();
+}
 
-  function renderZones() {
-    const zones = collectZones();
-    const nestPresent = state.events.some((e) => payload(e).ltf_nest);
-    let html = zones.map((z) => {
-      const b = z.box || {};
-      const mid = b.mid_50 != null ? b.mid_50 : b.mid;
-      const klass = z.kind === "nest" ? "nest" : z.kind === "hold" ? "hold" : (z.side === "supply" ? "supply" : "demand");
-      return `<div class="zone ${klass}">
-        <div class="zh"><span class="tag">${esc(z.label || z.side || "ZONE")}</span><span class="tf">${esc(z.tf || "")} · ${esc(z.freshness || "")}</span></div>
-        <div class="row"><span>proximal 100</span><span>${px(b.proximal)}</span></div>
-        <div class="row"><span>mid 50</span><span class="gold">${px(mid)}</span></div>
-        <div class="row"><span>distal 0</span><span>${px(b.distal)}</span></div>
-        ${z.note ? `<div class="note">${esc(z.note)}</div>` : ""}
-      </div>`;
-    }).join("");
-    if (!nestPresent) {
-      html += `<div class="zone nest">
-        <div class="zh"><span class="tag">LTF NEST</span><span class="tf">none</span></div>
-        <div class="note">No nest. Nest ≠ HTF box. Micro snipes nest 50%, not MACRO D1/M30 50%. Hunt TFs: M1/M5/M10/M20/M30 only.</div>
-      </div>`;
-    }
-    /* unused D1 supply from the live map if not in events */
-    if (!zones.some((z) => z.side === "supply" || (z.label || "").toLowerCase().includes("supply"))) {
-      html += `<div class="zone supply">
-        <div class="zh"><span class="tag">D1 SUPPLY unused</span><span class="tf">D1 · unused</span></div>
-        <div class="row"><span>proximal</span><span>5437.995</span></div>
-        <div class="row"><span>distal</span><span>5596.805</span></div>
-        <div class="note">Jan 28–29 peak. Not a long. Overhead only.</div>
-      </div>`;
-    }
-    $("zones").innerHTML = html;
-  }
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  camera.aspect = w / Math.max(1, h);
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
 
-  function fvgRangeKey(high, low) {
-    const h = Number(high), l = Number(low);
-    if (Number.isNaN(h) && Number.isNaN(l)) return null;
-    return (Number.isNaN(l) ? "" : l.toFixed(3)) + "-" + (Number.isNaN(h) ? "" : h.toFixed(3));
-  }
-  function pickGap(obj) {
-    if (!obj || typeof obj !== "object") return null;
-    const high = obj.gap_high != null ? obj.gap_high : (obj.fvg_high != null ? obj.fvg_high : obj.high);
-    const low = obj.gap_low != null ? obj.gap_low : (obj.fvg_low != null ? obj.fvg_low : obj.low);
-    if (high == null && low == null) return null;
-    const mid = obj.gap_mid != null ? obj.gap_mid : (obj.fvg_mid != null ? obj.fvg_mid : obj.mid);
-    return { high, low, mid };
-  }
-  function demand50Line(f) {
-    const d = f.demand || {};
-    const ov = f.overlap || {};
-    if (d.overlaps_demand_50 === true) {
-      return "demand-50 overlap · " + [d.demand_tf, d.demand_50 != null ? px(d.demand_50) : ""].filter(Boolean).join(" ");
-    }
-    const hits = [];
-    if (ov.overlap_d1_50 || ov["overlap_d1_50_4061.90"]) hits.push("D1 50 4061.90");
-    if (ov.overlap_m30_50 || ov["overlap_m30_50_4382.5"]) hits.push("M30 50 4382.5");
-    if (ov.overlap_unused_d1_4224_4304_50) hits.push("unused D1 4224–4304 50");
-    if (hits.length) return "demand-50 overlap · " + hits.join(" · ");
-    if (d.overlaps_demand_50 === false || ov.overlap_how === "none_vs_live_50" || ov.overlap_how) {
-      const mid = d.demand_50 != null ? " (demand 50 " + px(d.demand_50) + ")" : "";
-      return "no demand-50 overlap" + mid;
-    }
-    return "";
-  }
-  function collectFVGs() {
-    const out = [];
-    const seen = new Set();
-    const push = (row) => {
-      if (!row) return;
-      const key = fvgRangeKey(row.high, row.low);
-      if (!key) return;
-      if (row.mid == null && row.high != null && row.low != null) {
-        row.mid = (Number(row.high) + Number(row.low)) / 2;
-      }
-      const i = out.findIndex((x) => fvgRangeKey(x.high, x.low) === key);
-      if (i >= 0) {
-        const cur = out[i];
-        cur.late_chase = !!(cur.late_chase || row.late_chase);
-        cur.fill_state = cur.fill_state || row.fill_state;
-        cur.role = cur.role || row.role;
-        cur.demand = cur.demand || row.demand;
-        if (!cur.overlap || !Object.keys(cur.overlap).length) cur.overlap = row.overlap || {};
-        if (!cur.note) cur.note = row.note;
-        if (!cur.tf) cur.tf = row.tf;
-        return;
-      }
-      seen.add(key);
-      out.push(row);
-    };
-    for (const e of state.events) {
-      const p = payload(e);
-      const root = pickGap(p);
-      if (root) {
-        push({
-          high: root.high, low: root.low, mid: root.mid,
-          late_chase: p.late_chase === true || (p.fvg && p.fvg.late_chase === true),
-          fill_state: p.fill_state || (p.fvg && (p.fvg.fill_state || (p.fvg.unused ? "unused" : ""))),
-          role: p.role || (p.fvg && p.fvg.role) || "profit_area",
-          demand: p.demand,
-          overlap: p.fvg && typeof p.fvg === "object" ? p.fvg : {},
-          tf: e.tf || p.tf,
-          note: p.note || p.reason,
-        });
-      }
-      if (p.fvg && typeof p.fvg === "object") {
-        const nested = pickGap(p.fvg);
-        if (nested) {
-          push({
-            high: nested.high, low: nested.low, mid: nested.mid,
-            late_chase: p.fvg.late_chase === true || p.late_chase === true,
-            fill_state: p.fvg.fill_state || (p.fvg.unused ? "unused" : p.fill_state),
-            role: p.fvg.role || "profit_area",
-            demand: p.demand,
-            overlap: p.fvg,
-            tf: p.fvg.tf || e.tf,
-            note: p.reason || p.note,
-          });
-        }
-      }
-    }
-    if (!out.length) {
-      out.push({
-        high: 4223.505, low: 4106.475, mid: 4164.99,
-        late_chase: true, fill_state: "unused", role: "profit_area",
-        demand: { overlaps_demand_50: false, demand_50: 4061.9, demand_tf: "D1" },
-        overlap: { overlap_how: "none_vs_live_50" },
-        tf: "D1",
-        note: "Locked D1 FVG 4106.475–4223.505. Profit area, not a buy.",
-      });
-    }
-    return out;
-  }
-  function renderFVG() {
-    const fvgs = collectFVGs();
-    $("fvg").innerHTML = fvgs.map((f) => {
-      const late = f.late_chase ? `<span class="badge late">LATE CHASE</span>` : "";
-      const d50 = demand50Line(f);
-      const stateLab = f.fill_state ? " · " + esc(String(f.fill_state).replace(/_/g, " ").toUpperCase()) : "";
-      return `<div class="fvg-card">
-        <div class="fvg-head"><span class="tag">${esc((f.tf || "D1") + " FVG")}</span>${late}</div>
-        <div class="fvg-lines">
-          <div class="ln"><span>HIGH</span><span>${px(f.high)}</span></div>
-          <div class="ln"><span>MID</span><span class="gold">${px(f.mid)}</span></div>
-          <div class="ln"><span>LOW</span><span>${px(f.low)}</span></div>
-        </div>
-        <div class="fvg-role">PROFIT AREA · never a buy${stateLab}</div>
-        ${d50 ? `<div class="note">${esc(d50)}</div>` : ""}
-        ${f.note ? `<div class="note">${esc(f.note)}</div>` : ""}
-      </div>`;
-    }).join("");
-  }
-
-  /* ---------- book ---------- */
-  function lotteryFromEvents() {
-    const ev = [...state.events].reverse().find((e) => {
-      const p = payload(e);
-      return String(p.ticket) === "102034139" || (e.action || "") === "runner";
-    });
-    return ev ? payload(ev) : null;
-  }
-  function renderBook() {
-    const b = state.book || {};
-    const rows = (b.open || []).slice();
-    const live = !!b.live;
-    const run = rows.find((r) => String(r.ticket) === "102034139") || rows[0] || {};
-    const leftover = rows.find((r) => String(r.ticket) === "102177113");
-    const flt = b.floating_pl;
-    $("book").innerHTML = `
-      <div class="book-ticket">
-        <div><span class="tix">#${run.ticket || "—"}</span><span class="state">${(run.state || (live ? "live" : "open")).toString().toUpperCase()}</span></div>
-        <div class="kv"><span class="k">side</span><span class="buy">${(run.side || "buy").toUpperCase()}</span></div>
-        <div class="kv"><span class="k">lots</span><span>${run.lots != null ? run.lots : "—"}</span></div>
-        <div class="kv"><span class="k">entry</span><span>${px(run.entry)}</span></div>
-        <div class="kv"><span class="k">SL</span><span class="dn">${px(run.sl)}</span></div>
-        <div class="kv"><span class="k">ticket P/L</span><span class="${clsPnl(run.profit)}">${run.profit == null ? "—" : ((Number(run.profit) >= 0 ? "+" : "") + num(run.profit))}</span></div>
-        <div class="kv"><span class="k">book float</span><span class="${clsPnl(flt)}">${flt == null ? "—" : ((Number(flt) >= 0 ? "+" : "") + num(flt))}</span></div>
-        <div class="kv"><span class="k">bid / asof</span><span>${px(b.bid)} · ${b.asof ? fmtET(b.asof) : "—"}</span></div>
-        <div class="do-not">${live ? "LIVE MT4 · " : "SNAPSHOT · "}DO NOT FLATTEN 102034139 · SL 4050 stays.${leftover ? " Leftover 102177113 BE stays." : ""}</div>
-      </div>
-      <div class="table-wrap"><table class="book">
-        <thead><tr><th>TICKET</th><th>SIDE</th><th>ENTRY</th><th>SL</th><th>LOTS</th><th>P/L</th><th>AGENT</th></tr></thead>
-        <tbody>${rows.length ? rows.map((r) => `<tr>
-          <td>${r.ticket}</td><td class="buy">${(r.side || "buy").toUpperCase()}</td>
-          <td>${px(r.entry)}</td><td>${px(r.sl)}</td><td>${r.lots}</td>
-          <td class="${clsPnl(r.profit)}">${r.profit == null ? "—" : ((Number(r.profit) >= 0 ? "+" : "") + num(r.profit))}</td>
-          <td>${r.agent || ""}</td>
-        </tr>`).join("") : `<tr><td colspan="7">no open tickets</td></tr>`}</tbody>
-      </table></div>`;
-  }
-
-  function renderStory() {
-    const t = ((state.book && state.book.open) || [])[0] || {};
-    const run = lotteryFromEvents() || {};
-    const steps = [
-      { k: "card", title: "CARD", det: "Original long off the June/July base. Adds both closed. Leftover is the only gold seat." },
-      { k: "entry", title: "ENTRY  4043.95", det: "Ticket 102034139 · buy 0.05 (started 0.10) · 29 Jul 20:26 broker GMT+3" },
-      { k: "half", title: "HALF-TP  TAKEN", det: "Size cut to 0.05. SL stays 4050. Do not move it to BE." },
-      { k: "runner", title: "RUNNER  LOTTERY TICKET", det: "Floating +" + num((state.book && state.book.floating_pl) || 1710.05) + " on last statement (16 Aug 20:06). Next half only if leftover doubles → 0.025." },
-      { k: "stop", title: "SL  4050  —  DO NOT MOVE", det: "SL is ABOVE entry. This is the hold. Micro never places or closes MT4. Never touch this ticket." },
-    ];
-    $("story").innerHTML = `<div class="story">${steps.map((s) =>
-      `<div class="step ${s.k}"><div class="when">#${t.ticket || run.ticket || "102034139"}</div>
-       <div class="what">${s.title}</div><div class="det">${s.det}</div></div>`
-    ).join("")}</div>`;
-  }
-
-  /* ---------- pictures ---------- */
-  function resolvePic(path) {
-    let src = String(path);
-    if (src.includes("xauusd-wait-2026-08-16")) return "images/xauusd-wait-2026-08-16.png";
-    if (src.includes("xauusd-d1-sd-labeled")) return "images/xauusd-d1-sd-labeled.png";
-    const base = src.split("/").pop();
-    if (src.startsWith("/workspace/") || src.startsWith("/home/") || !src.startsWith("images/")) {
-      src = "images/" + base;
-    }
-    return src;
-  }
-  function picDedupeKey(src) {
-    const base = String(src).split("/").pop().toLowerCase();
-    /* fvg-d1-4106-4223-2026-08-16 and fvg-D1-2026-08-05-4106-4224 are the same file */
-    if (base.includes("fvg") && (base.includes("4106") || base.includes("4223") || base.includes("4224"))) {
-      return "fvg-d1-4106-4223";
-    }
-    return base;
-  }
-  function renderPictures() {
-    const pics = [];
-    const seen = new Set();
-    for (const e of state.events) {
-      const p = payload(e);
-      const path = p.picture || p.visual;
-      if (!path) continue;
-      const src = resolvePic(path);
-      const key = picDedupeKey(src);
-      if (seen.has(key) || seen.has(src)) continue;
-      seen.add(key);
-      seen.add(src);
-      pics.push({
-        src,
-        cap: (p.card || p.status || e.action || "CARD").toString().toUpperCase() +
-          " · " + (e.agent || "") + " · " + fmtET(e.ts) +
-          (p.reason ? " · " + p.reason : ""),
-      });
-    }
-    if (!seen.has("images/xauusd-wait-2026-08-16.png") && !seen.has("xauusd-wait-2026-08-16.png")) {
-      pics.unshift({
-        src: "images/xauusd-wait-2026-08-16.png",
-        cap: "WAIT · MICRO · 16 Aug 21:35 ET · unused M30 4373–4392 · spot 4400.90 above proximal · no nest",
-      });
-    }
-    if (!seen.has("images/xauusd-d1-sd-labeled.png") && !seen.has("xauusd-d1-sd-labeled.png")) {
-      pics.push({
-        src: "images/xauusd-d1-sd-labeled.png",
-        cap: "D1 S/D labeled · tape through 14 Aug · unused 4223.225–4303.745 · runner 4043.95 / SL 4050",
-      });
-    }
-    $("pictures").innerHTML = pics.map((p) =>
-      `<figure class="pic-card"><img src="${p.src}" alt="${esc(p.cap)}"><figcaption class="pic-cap"><b>LABELED</b> · ${esc(p.cap)}</figcaption></figure>`
-    ).join("");
-  }
-
-  /* ---------- feed ---------- */
-  function renderFeed() {
-    const evs = state.events.slice().sort((a, b) => {
-      const da = parseTs(a.ts)?.getTime() || 0;
-      const db = parseTs(b.ts)?.getTime() || 0;
-      return db - da;
-    });
-    const liveN = evs.filter((e) => !isSample(e)).length;
-    $("feed-meta").textContent = evs.length + " prints · " + liveN + " live · newest first";
-    $("feed").innerHTML = evs.map((e) => {
-      const k = evKey(e);
-      const fresh = state.fresh.has(k) ? " fresh" : "";
-      const ag = (e.agent || "?").toUpperCase();
-      return `<div class="row-ev ${ag}${fresh}">
-        <div class="t">${fmtET(e.ts)}</div>
-        <div class="ag">${ag}</div>
-        <div class="act">${esc(e.action || "")}</div>
-        <div class="tf">${esc(e.tf || "")}</div>
-        <div class="one">${esc(oneLine(e))}</div>
-      </div>`;
-    }).join("");
-    const anyLive = evs.some((e) => !isSample(e));
-    $("sample-banner").hidden = anyLive;
-  }
-
-  /* ---------- chart ---------- */
-  function placeholderTape() {
-    /* Synthetic XAUUSD-looking M30-ish bars, Jul 29 → Aug 16. NOT a live quote. */
-    const out = [];
-    const start = Date.UTC(2026, 6, 29, 17, 0, 0); /* 29 Jul ~ ticket era */
-    let t = start / 1000;
-    let c = 4048;
-    const target = [
-      [4043, 8], [4075, 12], [4120, 16], [4180, 20], [4224, 10],
-      [4260, 14], [4304, 8], [4330, 10], [4310, 6], [4374, 18],
-      [4396, 8], [4370, 6], [4401, 10],
-    ];
-    let bi = 0, left = target[0][1];
-    for (let i = 0; i < 118; i++) {
-      const dest = target[Math.min(bi, target.length - 1)][0];
-      const drift = (dest - c) * 0.18;
-      const w = 6 + (i % 7);
-      const o = c;
-      const h = o + Math.abs(drift) + w * 0.45 + (i % 3);
-      const l = o - w * 0.55 - ((i * 3) % 5);
-      c = o + drift + ((i % 5) - 2) * 0.8;
-      if (c > h) c = h - 0.4;
-      if (c < l) c = l + 0.4;
-      out.push({ time: t, open: +o.toFixed(3), high: +h.toFixed(3), low: +l.toFixed(3), close: +c.toFixed(3) });
-      t += 4 * 3600;
-      left -= 1;
-      if (left <= 0 && bi < target.length - 1) { bi += 1; left = target[bi][1]; }
-    }
-    /* pin last close near Sunday spot so markers make sense */
-    const last = out[out.length - 1];
-    last.close = 4400.9;
-    last.high = Math.max(last.high, 4409);
-    last.low = Math.min(last.low, 4394);
-    last.open = 4396;
-    return out;
-  }
-
-  function ensureChart() {
-    if (state.chart) return;
-    const el = $("chart");
-    state.chart = LightweightCharts.createChart(el, {
-      layout: { background: { color: "#0a0a08" }, textColor: "#8a8070", fontFamily: "IBM Plex Mono" },
-      grid: { vertLines: { color: "#16140f" }, horzLines: { color: "#16140f" } },
-      rightPriceScale: { borderColor: "#2a2416" },
-      timeScale: { borderColor: "#2a2416", timeVisible: true, secondsVisible: false },
-      crosshair: { vertLine: { color: "#c9a22755" }, horzLine: { color: "#c9a22755" } },
-      width: el.clientWidth,
-      height: 340,
-    });
-    state.series = state.chart.addCandlestickSeries({
-      upColor: "#3dba7a", downColor: "#d4544a",
-      borderUpColor: "#3dba7a", borderDownColor: "#d4544a",
-      wickUpColor: "#3dba7a", wickDownColor: "#d4544a",
-    });
-    state.series.setData(placeholderTape());
-    window.addEventListener("resize", () => {
-      if (state.chart) state.chart.applyOptions({ width: el.clientWidth });
-    });
-  }
-
-  function applyLinesAndMarkers() {
-    if (!state.series) return;
-    state.lines.forEach((l) => { try { state.series.removePriceLine(l); } catch (e) {} });
-    state.lines = [];
-    const add = (price, color, title) => {
-      if (price == null || Number.isNaN(Number(price))) return;
-      const line = state.series.createPriceLine({
-        price: Number(price), color, lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: true, title,
-      });
-      state.lines.push(line);
-    };
-    add(4392, "#3dba7a", "M30 prox 4392");
-    add(4382.5, "#c9a227", "M30 mid 4382.5");
-    add(4373, "#3dba7a", "M30 dist 4373");
-    add(4303.745, "#d4a017", "D1 prox 4304");
-    add(4223.225, "#d4a017", "D1 dist 4223");
-    add(4050, "#d4544a", "SL 4050");
-    add(4043.95, "#3dba7a", "ENTRY 4043.95");
-
-    const markers = [];
-    for (const e of state.events) {
-      const p = payload(e);
-      const t = parseTs(e.ts);
-      if (!t) continue;
-      const time = Math.floor(t.getTime() / 1000);
-      const a = (e.action || "").toLowerCase();
-      const price = p.price || (p.trade && p.trade.entry) || p.entry || p.open_price || p.spot;
-      if (a === "entry" || (a === "runner" && p.open_price)) {
-        markers.push({ time, position: "belowBar", color: "#3dba7a", shape: "arrowUp", text: "ENTRY " + px(p.open_price || p.entry || 4043.95) });
-      } else if (a === "half_tp" || p.half_taken) {
-        markers.push({ time, position: "aboveBar", color: "#d4a017", shape: "circle", text: "HALF" });
-      } else if (a === "stop" || a === "close") {
-        markers.push({ time, position: "aboveBar", color: "#d4544a", shape: "arrowDown", text: a.toUpperCase() });
-      } else if (a === "card" && (p.status || p.card) && price) {
-        markers.push({ time, position: "aboveBar", color: "#c9a227", shape: "square", text: String(p.status || p.card).toUpperCase() });
-      } else if (typeof price === "number") {
-        markers.push({ time, position: "inBar", color: "#4aa3d4", shape: "circle", text: px(price) });
-      }
-    }
-    /* pin lottery ticket on the tape window start */
-    const tape = placeholderTape();
-    if (tape.length) {
-      markers.unshift({
-        time: tape[0].time, position: "belowBar", color: "#3dba7a",
-        shape: "arrowUp", text: "102034139  4043.95",
-      });
-      markers.push({
-        time: tape[tape.length - 1].time, position: "aboveBar", color: "#c9a227",
-        shape: "square", text: "WAIT 4400.90",
-      });
-    }
-    markers.sort((a, b) => a.time - b.time);
-    try { state.series.setMarkers(markers); } catch (e) {}
-    updateSpotLine();
-  }
-
-  /* ---------- live XAU spot (gold-api) ---------- */
-  function refreshDot(pollErr) {
-    const dot = $("live-dot");
-    if (!dot) return;
-    const spotBit = state.spot == null
-      ? "SPOT …"
-      : ((state.spotLive ? "SPOT " : "SPOT STALE ") + px(state.spot));
-    const pollBit = pollErr ? ("POLL FAIL · " + pollErr) : "BOARD LIVE · poll 1s";
-    dot.innerHTML = '<span class="pulse"></span>' + pollBit + " · " + spotBit;
-    dot.classList.toggle("fail", !!pollErr);
-  }
-
-  function renderSpot() {
-    const el = $("spot-price");
-    const meta = $("spot-meta");
-    const wrap = $("mast-spot");
-    const lab = $("spot-lab");
-    const tf = $("chart-tf");
-    const tag = $("ph-tag");
-    if (el) el.textContent = state.spot != null ? px(state.spot) : "—";
-    if (state.spotLive) {
-      if (lab) lab.textContent = "LIVE SPOT";
-      if (meta) {
-        const when = state.spotAt ? fmtET(state.spotAt) : "";
-        meta.textContent = "indicative XAU mid · not Coinexx · not OANDA" + (when ? " · " + when : "");
-      }
-      if (wrap) { wrap.classList.add("live"); wrap.classList.remove("stale"); }
-      if (tf) tf.textContent = "LIVE SPOT + DESK MARKERS";
-      if (tag) tag.textContent = "indicative XAU mid · not Coinexx · not OANDA · markers from desk events";
-    } else if (state.spot != null) {
-      if (lab) lab.textContent = "STALE SPOT";
-      if (meta) meta.textContent = "book.json bid · gold-api failed · not Coinexx live · not OANDA";
-      if (wrap) { wrap.classList.add("stale"); wrap.classList.remove("live"); }
-      if (tf) tf.textContent = "STALE SPOT + DESK MARKERS";
-      if (tag) tag.textContent = "gold-api failed · book bid fallback · not live · markers from desk events";
-    } else {
-      if (lab) lab.textContent = "LIVE SPOT";
-      if (meta) meta.textContent = "indicative XAU mid · not Coinexx · not OANDA";
-      if (wrap) wrap.classList.remove("live", "stale");
-      if (tf) tf.textContent = "PLACEHOLDER TAPE";
-      if (tag) tag.textContent = "NOT live quotes · NOT Coinexx · NOT Dukascopy file · markers from desk events";
-    }
-  }
-
-  function pulseSpot() {
-    const wrap = $("mast-spot");
-    if (!wrap) return;
-    wrap.classList.remove("tick");
-    void wrap.offsetWidth;
-    wrap.classList.add("tick");
-    setTimeout(function () { wrap.classList.remove("tick"); }, 800);
-  }
-
-  function updateSpotLine() {
-    if (!state.series || state.spot == null || Number.isNaN(Number(state.spot))) return;
-    const live = !!state.spotLive;
-    const opts = {
-      price: Number(state.spot),
-      color: live ? "#4aa3d4" : "#d4a017",
-      lineWidth: 2,
-      lineStyle: live ? 0 : 2,
-      axisLabelVisible: true,
-      title: (live ? "LIVE " : "STALE ") + px(state.spot),
-    };
-    if (state.spotLine) {
-      try { state.spotLine.applyOptions(opts); return; } catch (e) { state.spotLine = null; }
-    }
-    try { state.spotLine = state.series.createPriceLine(opts); } catch (e) {}
-  }
-
-  function applySpot(q) {
-    const prev = state.spot;
-    state.spot = q.price;
-    state.spotAt = q.updatedAt || null;
-    state.spotLive = !!q.live;
-    state.spotSource = q.source || null;
-    renderSpot();
-    renderPL();
-    updateSpotLine();
-    if (prev == null || Number(prev) !== Number(q.price)) pulseSpot();
-    refreshDot();
-  }
-
-  async function pollSpot() {
+async function pollBook() {
+  let data = null;
+  try {
+    data = await getJSON(LIVE_BASE + "/book.json", 4000);
+    liveOk = true;
+  } catch (err) {
     try {
-      const r = await fetch(SPOT_URL, { cache: "no-store", headers: { "Accept": "application/json" } });
-      if (!r.ok) throw new Error("gold-api " + r.status);
-      const q = await r.json();
-      const price = Number(q.price);
-      if (!Number.isFinite(price) || price <= 0) throw new Error("bad XAU price");
-      applySpot({
-        price: price,
-        updatedAt: q.updatedAt || new Date().toISOString(),
-        symbol: q.symbol || "XAU",
-        live: true,
-        source: "gold-api",
-      });
-    } catch (err) {
-      const bid = state.book && state.book.bid;
-      if (bid != null && Number.isFinite(Number(bid)) && Number(bid) > 0) {
-        applySpot({
-          price: Number(bid),
-          updatedAt: (state.book && (state.book.mt4_asof || state.book.statement_time)) || null,
-          symbol: "XAU",
-          live: false,
-          source: "book",
-        });
-      } else {
-        state.spotLive = false;
-        renderSpot();
-        refreshDot();
-      }
+      data = await getJSON("./book.json", 4000);
+      liveOk = false;
+    } catch (err2) {
+      liveOk = false;
+      return;
     }
   }
-
-  /* ---------- ingest ---------- */
-  function ingest(list) {
-    if (!Array.isArray(list)) return;
-    const next = [];
-    const keys = new Set();
-    for (const raw of list) {
-      const e = normalize(raw);
-      if (!e) continue;
-      const k = evKey(e);
-      if (keys.has(k)) continue;
-      keys.add(k);
-      if (state.seen.size && !state.seen.has(k)) state.fresh.add(k);
-      next.push(e);
-    }
-    next.forEach((e) => state.seen.add(evKey(e)));
-    state.events = next;
-    setTimeout(() => state.fresh.clear(), 1800);
+  if (!data || typeof data !== "object") return;
+  book = data;
+  if (Number.isFinite(data.bid)) {
+    if (lastBid != null && data.bid !== lastBid) dustShiver = Math.min(1.6, dustShiver + 0.7);
+    lastBid = data.bid;
+    ingestPrice(data.bid);
   }
+  syncMonoliths(Array.isArray(data.positions) ? data.positions : []);
+  refreshHolos();
+}
 
-  function normalize(raw) {
-    if (!raw || typeof raw !== "object") return null;
-    /* already bus-shaped */
-    if (raw.agent && raw.action && (raw.ts || raw.ts_et)) {
-      const agent = String(raw.agent).toUpperCase();
-      return {
-        ts: raw.ts || raw.ts_et,
-        agent: agent === "MICRO" ? "MICRO" : agent === "FVG" ? "FVG" : "MACRO",
-        action: raw.action,
-        symbol: raw.symbol || "XAUUSD",
-        tf: raw.tf || (raw.payload && raw.payload.htf_box && raw.payload.htf_box.tf) || "",
-        payload: raw.payload || {},
-      };
-    }
-    /* raw MICRO card */
-    if (raw.card && (raw.agent === "micro" || raw.htf_box || raw.ts_et)) {
-      return {
-        ts: raw.ts_et || raw.ts,
-        agent: "MICRO",
-        action: "card",
-        symbol: raw.symbol || "XAUUSD",
-        tf: (raw.htf_box && raw.htf_box.tf) || raw.hunt_tf || "M30",
-        payload: {
-          card: raw.card, spot: raw.spot, macro_impulse: raw.macro_impulse,
-          htf_box: raw.htf_box, ltf_nest: raw.ltf_nest, hunt_tf: raw.hunt_tf,
-          entry: raw.entry, sl: raw.sl, risk_usd: raw.risk_usd, lots: raw.lots,
-          reason: raw.reason, refuse: raw.refuse, picture: raw.picture,
-          tickets_do_not_touch: raw.tickets_do_not_touch, quiet: raw.quiet,
-        },
-      };
-    }
-    return null;
-  }
-
-  function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-
-  function renderAll() {
-    renderPL();
-    renderSpot();
-    renderAgents();
-    renderZones();
-    renderFVG();
-    renderBook();
-    renderStory();
-    renderPictures();
-    renderFeed();
-    applyLinesAndMarkers();
-  }
-
-
-  const LIVE_BASE = "https://geek-talk-incidents-organizer.trycloudflare.com";
-
-  async function loadJSON(path) {
-    const urls = [];
-    if (LIVE_BASE && (path === "book.json" || path === "events.json")) {
-      urls.push(LIVE_BASE.replace(/\/$/, "") + "/" + path);
-    }
-    urls.push(path);
-    let lastErr;
-    for (const url of urls) {
-      try {
-        const sep = url.includes("?") ? "&" : "?";
-        const r = await fetch(url + sep + "t=" + Date.now(), { cache: "no-store" });
-        if (!r.ok) throw new Error(url + " " + r.status);
-        return await r.json();
-      } catch (e) { lastErr = e; }
-    }
-    throw lastErr;
-  }
-
-
-  async function poll() {
+async function pollEvents() {
+  let data = null;
+  try {
+    data = await getJSON(LIVE_BASE + "/events.json", 4000);
+  } catch (err) {
     try {
-      const evsP = loadJSON("events.json");
-      const bookP = loadJSON("book.json").catch(function () { return null; });
-      const evs = await evsP;
-      let book = await bookP;
-      if (book && typeof book === "object") {
-        book = normalizeBook(book);
-        const prev = state.book;
-        state.book = book;
-        if (prev && (prev.equity !== book.equity || prev.bid !== book.bid)) {
-          const strip = document.getElementById("pl-strip");
-          if (strip) { strip.classList.remove("tick"); void strip.offsetWidth; strip.classList.add("tick"); }
-        }
-      }
-      ingest(evs);
-      renderAll();
-      refreshDot();
-    } catch (err) {
-      refreshDot(err.message);
+      data = await getJSON("./events.json", 4000);
+    } catch (err2) {
+      return;
     }
   }
+  const list = Array.isArray(data) ? data : (data && (data.events || data.items)) || [];
+  events = list;
+  syncEvents(list);
+}
 
-  async function boot() {
-    tickClock();
-    setInterval(tickClock, 1000);
-    try { state.book = normalizeBook(await loadJSON("book.json")); } catch (e) { state.book = { account: "5217539", balance: 5355.93, equity: 7065.98, floating_pl: 1710.05, closed_pl: 11828.93, margin: 202.20, free_margin: 6863.78, risk_usd_new_fills: 160.68, bid: 4394.72, open: [{ ticket: "102034139", side: "buy", lots: 0.05, entry: 4043.95, sl: 4050, state: "lottery_ticket", started_lots: 0.1, agent: "MACRO" }] }; }
-    ensureChart();
-    await poll();
-    setInterval(poll, POLL_MS);
-    pollSpot();
-    setInterval(pollSpot, SPOT_MS);
+async function pollGold() {
+  try {
+    const data = await getJSON(GOLD_URL, 4000);
+    const px = data && Number(data.price);
+    if (Number.isFinite(px)) {
+      goldPx = px;
+      ingestPrice(px);
+      if (!book) refreshHolos();
+    }
+  } catch (err) {
+    /* gold-api optional; ribbon still lives from last prices */
   }
+}
 
-  boot();
-})();
+async function pollAll() {
+  await Promise.all([pollBook(), pollEvents(), pollGold()]);
+}
+
+function tickDust(t, dt) {
+  if (!dust) return;
+  const pos = dust.geometry.attributes.position.array;
+  const shiver = dustShiver;
+  for (let i = 0; i < DUST_N; i += 1) {
+    const i3 = i * 3;
+    const bx = dustBase[i3];
+    const by = dustBase[i3 + 1];
+    const bz = dustBase[i3 + 2];
+    pos[i3] = bx + Math.sin(t * 0.31 + i * 0.17) * 0.08 + (Math.sin(t * 9 + i) * shiver * 0.18);
+    pos[i3 + 1] = by + Math.cos(t * 0.27 + i * 0.11) * 0.12 + shiver * Math.sin(t * 11 + i * 0.3) * 0.2;
+    pos[i3 + 2] = bz + Math.sin(t * 0.22 + i * 0.09) * 0.08;
+  }
+  dust.geometry.attributes.position.needsUpdate = true;
+  dustShiver = Math.max(0, dustShiver - dt * 1.6);
+}
+
+function tickMonoliths(t, dt) {
+  if (!monolithGroup) return;
+  monolithGroup.children.forEach((g) => {
+    const pillar = g.userData.pillar;
+    const target = g.userData.targetH || 3;
+    pillar.scale.y += (target - pillar.scale.y) * Math.min(1, dt * 3.2);
+    pillar.position.y = pillar.scale.y / 2;
+    const plaque = g.userData.plaque;
+    plaque.position.y = Math.max(1.6, pillar.scale.y * 0.58);
+    g.position.y = 0;
+    g.rotation.y = Math.sin(t * 0.18 + g.position.x) * 0.03;
+  });
+}
+
+function tickFocus(dt) {
+  if (!focusGoal) return;
+  camera.position.lerp(focusGoal.pos, clamp(dt * 2.4, 0, 1));
+  controls.target.lerp(focusGoal.target, clamp(dt * 2.4, 0, 1));
+  if (camera.position.distanceTo(focusGoal.pos) < 0.08) focusGoal = null;
+}
+
+function tickDrift(t, dt) {
+  if (focusGoal) return;
+  if (userDriving && performance.now() - lastInput < 7000) return;
+  userDriving = false;
+  const q = new THREE.Quaternion();
+  q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), dt * 0.045);
+  camera.position.sub(controls.target).applyQuaternion(q).add(controls.target);
+  camera.position.y += Math.sin(t * 0.17) * 0.01;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.05, clock.getDelta());
+  const t = clock.elapsedTime;
+  tickDust(t, dt);
+  updateRibbon();
+  tickMonoliths(t, dt);
+  tickFocus(dt);
+  tickDrift(t, dt);
+  if (titleMesh) titleMesh.position.y = 12.6 + Math.sin(t * 0.35) * 0.08;
+  if (holoGroup) holoGroup.children.forEach((m, i) => {
+    m.position.y = 9.7 + Math.sin(t * 0.4 + i) * 0.06;
+  });
+  if (eventGroup) eventGroup.children.forEach((m, i) => {
+    m.position.y = (m.userData.baseY || 1.55) + Math.sin(t * 0.5 + i * 0.7) * 0.08;
+  });
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+function bindInput() {
+  window.addEventListener("resize", resize);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("keydown", onKey);
+  canvas.style.cursor = "grab";
+}
+
+initScene();
+initDust();
+initRibbon();
+initHolos();
+bindInput();
+refreshHolos();
+pollAll();
+setInterval(pollAll, 2000);
+animate();

@@ -2,100 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>XAUUSD DESK · 5217539</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=live2">
-  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+  </script>
 </head>
 <body>
-  <div id="sample-banner" hidden>SAMPLE TAPE — synthetic events only. Hides when a live desk print arrives.</div>
-
-  <header class="mast">
-    <div class="mast-brand">
-      <div class="wordmark">XAUUSD</div>
-      <div class="sub">GOLD ONLY · COINEXX DEMO 5217539 · JONATHAN SCHWADRON</div>
-    </div>
-    <div class="mast-spot" id="mast-spot">
-      <div class="spot-k"><span class="spot-dot"></span><span id="spot-lab">LIVE SPOT</span></div>
-      <div class="spot-v" id="spot-price">—</div>
-      <div class="spot-s" id="spot-meta">indicative XAU mid · not Coinexx · not OANDA</div>
-    </div>
-    <div class="mast-card">
-      <div id="card-status" class="status-pill wait">WAIT</div>
-      <div id="card-reason" class="card-reason">price above unused M30 · no 50% · do not chase</div>
-    </div>
-    <div class="mast-clock">
-      <div id="clock-et" class="clock">--:--:--</div>
-      <div class="tz-label">ET · America/New_York</div>
-      <div id="live-dot" class="live-dot"><span class="pulse"></span>BOARD LIVE · poll 1s</div>
-    </div>
-  </header>
-
-  <section class="pl-strip" id="pl-strip"></section>
-
-  <section class="panel book-top" id="book-panel">
-    <h2>OPEN BOOK · DO NOT FLATTEN</h2>
-    <div id="book"></div>
-  </section>
-
-  <section class="panel story-top" id="story-panel">
-    <h2>TRADE STORY</h2>
-    <div id="story"></div>
-  </section>
-
-  <main class="board">
-    <aside class="col left">
-      <section class="panel" id="agents-panel">
-        <h2>DESK SEATS</h2>
-        <div id="agents"></div>
-      </section>
-      <section class="panel" id="zones-panel">
-        <h2>ZONES · BOX ≠ NEST</h2>
-        <div id="zones"></div>
-      </section>
-      <section class="panel" id="fvg-panel">
-        <h2>FVG · PROFIT AREA</h2>
-        <div class="fvg-disclaimer">Never auto-long. Three lines only. FVG is a take-profit area, not a seat to buy.</div>
-        <div id="fvg"></div>
-      </section>
-    </aside>
-
-    <section class="col mid">
-      <section class="panel chart-panel">
-        <div class="chart-head">
-          <div>
-            <span class="chart-sym">XAUUSD</span>
-            <span class="chart-tf" id="chart-tf">PLACEHOLDER TAPE</span>
-          </div>
-          <div class="ph-tag" id="ph-tag">NOT live quotes · NOT Coinexx · NOT Dukascopy file · markers from desk events</div>
-        </div>
-        <div id="chart"></div>
-      </section>
-      <section class="panel pics-panel">
-        <h2>LABELED CARDS · THE PICTURE IS THE CARD</h2>
-        <div id="pictures" class="pictures"></div>
-      </section>
-    </section>
-  </main>
-
-  <section class="panel feed-panel">
-    <div class="feed-head">
-      <h2>LIVE ACTIVITY</h2>
-      <div id="feed-meta" class="feed-meta"></div>
-    </div>
-    <div id="feed" class="feed"></div>
-  </section>
-
-  <footer class="desk-foot">
-    Analysis = TradingView OANDA/FXCM. Tape check = Dukascopy BID. Entries = Coinexx MT4 (Jonathan’s phone).
-    Size new fills off balance 5355.93 · 3% / cap 4% · risk $160.68.
-    Fib is a ruler on the BOX (0=distal, 100=proximal, 50=mid) — not a dump retrace.
-    Skip week with no box = empty week, not a fail. Silence is a state.
-  </footer>
-
-  <script src="app.js?v=live2"></script>
+  <canvas id="stage"></canvas>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
