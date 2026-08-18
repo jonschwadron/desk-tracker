@@ -1608,5 +1608,24 @@
       },
       "d1_control": "supply"
     }
+  },
+  {
+    "ts": "2026-08-18T11:29:42-04:00",
+    "agent": "FVG",
+    "action": "invalidate",
+    "symbol": "XAUUSD",
+    "tf": "M30",
+    "payload": {
+      "fvg_id": "fvg-M30-2026-08-17-4375-4388",
+      "gap_low": 4375.425,
+      "gap_high": 4387.61,
+      "gap_mid": 4381.5175,
+      "fill_state": "dead",
+      "dead_close": 4366.685,
+      "dead_bar": "2026-08-18T10:30-04:00",
+      "spot": 4356.87,
+      "visual": "/workspace/desk/fvg/cards/hunt-20260818-1111-M30.png",
+      "note": "Completed 10:30 M30 close 4366.685 through 4375.425. Remnant dead. No new unused bullish FVG. No invert-long."
+    }
   }
 ]
