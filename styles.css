@@ -357,3 +357,6 @@ table.book .buy { color: var(--green); }
   .row-ev { grid-template-columns: 72px 50px 64px 1fr; }
   .row-ev .tf { display: none; }
 }
+
+.pl-strip.tick { animation: pltick 0.35s ease; }
+@keyframes pltick { 0% { filter: brightness(1.25); } 100% { filter: brightness(1); } }

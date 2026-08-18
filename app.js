@@ -831,11 +831,27 @@
     applyLinesAndMarkers();
   }
 
-  async function loadJSON(url) {
-    const r = await fetch(url + "?t=" + Date.now(), { cache: "no-store" });
-    if (!r.ok) throw new Error(url + " " + r.status);
-    return r.json();
+
+  const LIVE_BASE = "https://geek-talk-incidents-organizer.trycloudflare.com";
+
+  async function loadJSON(path) {
+    const urls = [];
+    if (LIVE_BASE && (path === "book.json" || path === "events.json")) {
+      urls.push(LIVE_BASE.replace(/\/$/, "") + "/" + path);
+    }
+    urls.push(path);
+    let lastErr;
+    for (const url of urls) {
+      try {
+        const sep = url.includes("?") ? "&" : "?";
+        const r = await fetch(url + sep + "t=" + Date.now(), { cache: "no-store" });
+        if (!r.ok) throw new Error(url + " " + r.status);
+        return await r.json();
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr;
   }
+
 
   async function poll() {
     try {
@@ -843,7 +859,14 @@
       const bookP = loadJSON("book.json").catch(function () { return null; });
       const evs = await evsP;
       const book = await bookP;
-      if (book && typeof book === "object") state.book = book;
+      if (book && typeof book === "object") {
+        const prev = state.book;
+        state.book = book;
+        if (prev && (prev.equity !== book.equity || prev.bid !== book.bid)) {
+          const strip = document.getElementById("pl-strip");
+          if (strip) { strip.classList.remove("tick"); void strip.offsetWidth; strip.classList.add("tick"); }
+        }
+      }
       ingest(evs);
       renderAll();
       refreshDot();
