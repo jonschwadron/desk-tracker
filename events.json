@@ -1648,5 +1648,20 @@
       "spot": 4356.265,
       "visual": "/workspace/desk/fvg/cards/bear-ifvg-20260818-1125-H1.png"
     }
+  },
+  {
+    "ts": "2026-08-18T11:49:22-04:00",
+    "agent": "FVG",
+    "action": "hunt",
+    "symbol": "XAUUSD",
+    "tf": "H4",
+    "payload": {
+      "result": "NONE",
+      "unused_h4_bearish": false,
+      "unused_d1_bearish": false,
+      "spot": 4359.645,
+      "d1_low": 4351.765,
+      "note": "Hovered H4 9-18 Aug and D1 6-18 Aug. No C1.low > C3.high unused. Forming 09:00 H4 cannot be C3. Invert-long off."
+    }
   }
 ]
